@@ -1,0 +1,44 @@
+menuconfig LIBUKSTORE
+	bool "ukstore: Key-Value buffer storage"
+	select LIBNOLIBC
+	select LIBUKALLOC
+	default n
+
+if LIBUKSTORE
+	config LIBUKSTORE_HASHTABLE
+		bool "Use hashtable"
+		default n
+		help
+			If on, a hashtable is used. If off, static sections are used.
+			Static sections are better when the size is known at compile time.
+	if LIBUKSTORE_HASHTABLE
+		config LIBUKSTORE_BUFFER_SIZE
+			int "Key-Value buffer size"
+			default 13
+		help
+			The maximum number of entries in the buffer. It is suggested that
+			the value is a prime number and set in such a way to ensure an
+			acceptable collision rate.
+	endif
+	config LIBUKSTORE_CALLBACK
+		bool "Callback system"
+		default n
+		help
+			Callback system for reading/writing information. It is used to
+			register functions as writers and readers and call them.
+	if LIBUKSTORE_CALLBACK
+		config LIBUKSTORE_READERS_SIZE
+			int "Reader buffer size"
+			default 5
+			help
+				There can be multiple readers for one write. For each writer
+				there is an array of this size of readers.
+	endif
+	config LIBUKSTORE_THREAD_SAFE
+		bool "Thread-safe macros"
+		select LIBUKLOCK
+		select LIBUKLOCK_MUTEX
+		default n
+		help
+			Thread-safe equivalents for each macro.
+endif
