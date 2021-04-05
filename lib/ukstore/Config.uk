@@ -1,0 +1,5 @@
+menuconfig LIBUKSTORE
+	bool "ukstore: Tree buffer storage"
+	select LIBNOLIBC
+	select LIBUKALLOC
+	default n
