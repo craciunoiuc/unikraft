@@ -73,12 +73,12 @@ static uint16_t __default_nodes_nr = 2;
  */
 #define uk_tree_for_each_child_entry(p, root, field)			\
 	__uk_tree_for_internal()					\
-		for (__uk_tree_idx = 0,	p = uk_tree_entry(		\
+		for (__uk_tree_idx = 0,	(p) = uk_tree_entry(		\
 				(&(root)->field)->next[__uk_tree_idx],	\
 				typeof(*(root)), field);		\
 			__uk_tree_idx < (&(root)->field)->next_nodes_nr;\
 			++__uk_tree_idx,				\
-			p = uk_tree_entry(				\
+			(p) = uk_tree_entry(				\
 				(&(root)->field)->next[__uk_tree_idx],	\
 				typeof(*(root)), field))
 
@@ -87,15 +87,13 @@ static uint16_t __default_nodes_nr = 2;
 	__uk_tree_init_node(name)
 
 /* The default size of children a new node will have */
-#define UK_TREE_SET_DEFAULT_SIZE(size)	\
-	__default_nodes_nr = size
+#define UK_TREE_SET_DEFAULT_SIZE(size) (__default_nodes_nr) = (size)
 
 static inline int8_t
 __uk_tree_init_node(struct uk_tree_node *node)
 {
-	if (unlikely(!node)) {
+	if (unlikely(!node))
 		return -EINVAL;
-	}
 
 	node->prev = NULL;
 	node->next_nodes_nr = __default_nodes_nr;
@@ -118,15 +116,13 @@ __uk_tree_init_node(struct uk_tree_node *node)
 static inline void
 __uk_tree_del(struct uk_tree_node *tree_node)
 {
-	if (unlikely(!tree_node)) {
+	if (unlikely(!tree_node))
 		return;
-	}
 
 	// Remove all children tables
 	for (uint16_t i = 0; i < tree_node->next_nodes_nr; ++i) {
-		if (!tree_node->next[i]) {
+		if (!tree_node->next[i])
 			__uk_tree_del(tree_node->next[i]);
-		}
 	}
 
 	// Remove table
@@ -142,9 +138,8 @@ __uk_tree_del(struct uk_tree_node *tree_node)
 static inline int8_t
 __uk_tree_double_size(struct uk_tree_node *place)
 {
-	if (unlikely(!place || !place->next)) {
+	if (unlikely(!place || !place->next))
 		return -EINVAL;
-	}
 
 	place->next_nodes_free = place->next_nodes_nr;
 	place->next_nodes_nr <<= 1;
@@ -155,9 +150,8 @@ __uk_tree_double_size(struct uk_tree_node *place)
 	memset(place->next + place->next_nodes_free, 0,
 		sizeof(place->next) * place->next_nodes_free);
 
-	if (unlikely(!place->next)) {
+	if (unlikely(!place->next))
 		return -ENOMEM;
-	}
 
 	return 0;
 }
@@ -168,19 +162,17 @@ __uk_tree_double_size(struct uk_tree_node *place)
 static inline int8_t
 uk_tree_shrink_to_fit(struct uk_tree_node *place)
 {
-	if (unlikely(!place || !place->next)) {
+	if (unlikely(!place || !place->next))
 		return -EINVAL;
-	}
 
 	place->next_nodes_nr -= place->next_nodes_free;
 	place->next_nodes_free = 0;
 	place->next = (struct uk_tree_node **) realloc(place->next,
 				sizeof(*place->next) * place->next_nodes_nr);
 
-	if (unlikely(!place->next)) {
+	if (unlikely(!place->next))
 		return -ENOMEM;
-	}
-	
+
 	return 0;
 }
 
@@ -195,9 +187,8 @@ __uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 	// Double the space (not safe)
 	if (unlikely(!place->next_nodes_free)) {
 		ret = __uk_tree_double_size(place);
-		if(unlikely(ret < 0)) {
+		if (unlikely(ret < 0))
 			return ret;
-		}
 	}
 
 	for (uint16_t i = 0; i < place->next_nodes_nr; ++i) {
@@ -238,9 +229,9 @@ uk_tree_del(struct uk_tree_node *tree_node)
 {
 	struct uk_tree_node *parent = tree_node->prev;
 
-	if (unlikely(!tree_node)) {
+	if (unlikely(!tree_node))
 		return -EINVAL;
-	}
+
 	// Remove entry in parent table
 	if (likely(parent)) {
 		for (uint16_t i = 0; i < parent->next_nodes_nr; ++i) {
@@ -268,16 +259,14 @@ uk_tree_replace(struct uk_tree_node *old_entry, struct uk_tree_node *new_entry)
 	struct uk_tree_node *parent;
 	int8_t ret;
 
-	if (unlikely(!old_entry)) {
+	if (unlikely(!old_entry))
 		return -EINVAL;
-	}
 
 	parent = old_entry->prev;
 
 	ret = uk_tree_del(old_entry);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	for (uint16_t i = 0; i < parent->next_nodes_nr; ++i) {
 		if (!parent->next[i]) {
@@ -296,14 +285,12 @@ static inline struct uk_tree_node *
 uk_tree_find(struct uk_tree_node *root,
 		const uint16_t *path, const uint16_t depth)
 {
-	if (unlikely(!root || !root->next)) {
+	if (unlikely(!root || !root->next))
 		return NULL;
-	}
 
 	for (uint16_t i = 0; i < depth; ++i) {
-		if (unlikely(!root->next[path[i]])) {
+		if (unlikely(!root->next[path[i]]))
 			return NULL;
-		}
 		root = root->next[path[i]];
 	}
 
@@ -316,14 +303,12 @@ uk_tree_find(struct uk_tree_node *root,
 static inline int8_t
 uk_tree_is_leaf(struct uk_tree_node *node)
 {
-	if (unlikely(!node || !node->next)) {
+	if (unlikely(!node || !node->next))
 		return 1;
-	}
 
 	for (uint16_t i = 0; i < node->next_nodes_nr; ++i) {
-		if (node->next[i]) {
+		if (node->next[i])
 			return 0;
-		}
 	}
 
 	return 1;
@@ -337,15 +322,13 @@ uk_tree_node_apply(struct uk_tree_node *node, void (*f)(struct uk_tree_node *))
 {
 	struct uk_tree_node *elem;
 
-	if (!node) {
+	if (!node)
 		return;
-	}
 
 	f(node);
 
-	if (!node->next) {
+	if (!node->next)
 		return;
-	}
 
 	uk_tree_for_each_child(elem, node) {
 		uk_tree_node_apply(elem, f);
