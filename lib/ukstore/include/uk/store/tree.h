@@ -41,9 +41,6 @@
 #include <stdint.h>
 #include <string.h>
 
-// TODO tree iteration (inorder/preorder/postorder)
-// TODO for_each_node (inorder -> node list -> iterate on it -> free with define)
-
 struct uk_tree_node {
 	struct uk_tree_node *prev;
 	struct uk_tree_node **next;
@@ -330,6 +327,29 @@ uk_tree_is_leaf(struct uk_tree_node *node)
 	}
 
 	return 1;
+}
+
+/*
+ * Applies the function f on all nodes below a given node
+ */
+static inline void
+uk_tree_node_apply(struct uk_tree_node *node, void (*f)(struct uk_tree_node *))
+{
+	struct uk_tree_node *elem;
+
+	if (!node) {
+		return;
+	}
+
+	f(node);
+
+	if (!node->next) {
+		return;
+	}
+
+	uk_tree_for_each_child(elem, node) {
+		uk_tree_node_apply(elem, f);
+	}
 }
 
 #endif /* __STORE_TREE_H__ */
