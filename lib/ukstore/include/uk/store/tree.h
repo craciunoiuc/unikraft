@@ -50,16 +50,30 @@ struct uk_tree_node {
 
 static uint16_t __default_nodes_nr = 2;
 
+/**
+ * Returns an entry that contains the node.
+ *
+ * @param ptr pointer to the node
+ * @param type the structure that contains the node
+ * @param field structure field name
+ * @return pointer to the entry
+ */
 #define uk_tree_entry(ptr, type, field) __containerof(ptr, type, field)
 
-/*
- * Used to keep the iterator for arrays
+/**
+ * Used internally for the index
  */
 #define __uk_tree_for_internal()	\
 	for (int32_t __uk_tree_idx = -1; unlikely(__uk_tree_idx == -1);)
 
-/*
- * Iterate through all children of a node with p
+
+/**
+ * Iterates through all next nodes.
+ *
+ * Checkpatch error is false positive.
+ *
+ * @param p pointer iterator
+ * @param root the parent where to iterate
  */
 #define uk_tree_for_each_child(p, root)					\
 	__uk_tree_for_internal()					\
@@ -68,8 +82,15 @@ static uint16_t __default_nodes_nr = 2;
 			++__uk_tree_idx,				\
 			p = (root)->next[__uk_tree_idx])
 
-/*
- * Iterate through all children of a node and store entries in p
+
+/**
+ * Iterates through all next nodes and gets the entry
+ *
+ * Checkpatch error is false positive.
+ *
+ * @param p pointer iterator
+ * @param root the parent where to iterate
+ * @param field structure field name
  */
 #define uk_tree_for_each_child_entry(p, root, field)			\
 	__uk_tree_for_internal()					\
@@ -83,12 +104,29 @@ static uint16_t __default_nodes_nr = 2;
 				typeof(*(root)), field))
 
 
+/**
+ * Initializes a node / the root.
+ *
+ * @param name the root
+ */
 #define UK_TREE_ROOT_INIT(name)	\
 	__uk_tree_init_node(name)
 
-/* The default size of children a new node will have */
-#define UK_TREE_SET_DEFAULT_SIZE(size) (__default_nodes_nr) = (size)
 
+/**
+ * Modifies the default size of the next array.
+ *
+ * @param size array size
+ */
+#define UK_TREE_SET_DEFAULT_SIZE(size)	\
+	do { (__default_nodes_nr) = (size) } while (0)
+
+/**
+ * Initializes a node with default values.
+ *
+ * @param node pointer to the node to be initialized
+ * @return 0 on success, negative on error
+ */
 static inline int8_t
 __uk_tree_init_node(struct uk_tree_node *node)
 {
@@ -109,9 +147,9 @@ __uk_tree_init_node(struct uk_tree_node *node)
 }
 
 /**
- * Frees the node. The next nodes also get deleted (no sense to keep the pointer
- * to a processes' max_memory if it doesn't exist anymore)
+ * Deletes a node and all subsequent children.
  *
+ * @param tree_node pointer to the node where to start deletion
  */
 static inline void
 __uk_tree_del(struct uk_tree_node *tree_node)
@@ -119,21 +157,23 @@ __uk_tree_del(struct uk_tree_node *tree_node)
 	if (unlikely(!tree_node))
 		return;
 
-	// Remove all children tables
 	for (uint16_t i = 0; i < tree_node->next_nodes_nr; ++i) {
 		if (!tree_node->next[i])
 			__uk_tree_del(tree_node->next[i]);
 	}
 
-	// Remove table
 	if (likely(tree_node->next)) {
 		free(tree_node->next);
 		tree_node->next = NULL;
 	}
 }
 
-/*
- * Doubles the space of the next array, if needed
+
+/**
+ * Doubles the capacity of the next array.
+ *
+ * @param place where to double the capacity
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 __uk_tree_double_size(struct uk_tree_node *place)
@@ -156,8 +196,12 @@ __uk_tree_double_size(struct uk_tree_node *place)
 	return 0;
 }
 
-/*
- * Shrinks the next array to exactly the space occupied.
+
+/**
+ * Shrinks next array to exactly the needed capacity.
+ *
+ * @param place where to do the resize
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 uk_tree_shrink_to_fit(struct uk_tree_node *place)
@@ -176,15 +220,19 @@ uk_tree_shrink_to_fit(struct uk_tree_node *place)
 	return 0;
 }
 
-/*
- * Adds an element as a child to a node
+
+/**
+ * Adds a node to the tree.
+ *
+ * @param place where to add the node as a child
+ * @param new_entry node to be added
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 __uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 {
 	int8_t ret = 0;
 
-	// Double the space (not safe)
 	if (unlikely(!place->next_nodes_free)) {
 		ret = __uk_tree_double_size(place);
 		if (unlikely(ret < 0))
@@ -202,8 +250,12 @@ __uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 	return ret;
 }
 
-/*
- * Initializes and adds an element as a child to a node
+/**
+ * Initializes a node and adds it to the tree.
+ *
+ * @param place where to add the node as a child
+ * @param new_entry node to be added
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 uk_tree_add_new(struct uk_tree_node *place, struct uk_tree_node *new_entry)
@@ -212,8 +264,12 @@ uk_tree_add_new(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 	return __uk_tree_add(place, new_entry);
 }
 
-/*
- * Adds an already initialized element as a child to a node
+/**
+ * Adds an already initalized node to the tree.
+ *
+ * @param place where to add the node as a child
+ * @param new_entry node to be added
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 uk_tree_add_existing(struct uk_tree_node *place, struct uk_tree_node *new_entry)
@@ -221,8 +277,11 @@ uk_tree_add_existing(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 	return __uk_tree_add(place, new_entry);
 }
 
-/*
- * Delete a node and all children
+/**
+ * Deletes a node and all children and removes it as child from its parent.
+ *
+ * @param tree_node node to be deleted
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 uk_tree_del(struct uk_tree_node *tree_node)
@@ -232,7 +291,6 @@ uk_tree_del(struct uk_tree_node *tree_node)
 	if (unlikely(!tree_node))
 		return -EINVAL;
 
-	// Remove entry in parent table
 	if (likely(parent)) {
 		for (uint16_t i = 0; i < parent->next_nodes_nr; ++i) {
 			if (unlikely(parent->next[i] == tree_node)) {
@@ -250,8 +308,12 @@ uk_tree_del(struct uk_tree_node *tree_node)
 	return 0;
 }
 
-/*
- * Delete the entry and replace it with another
+/**
+ * Replaces a node with another existing one.
+ *
+ * @param old_entry the node to be replaced
+ * @param new_entry the node to be added
+ * @return 0 on success, negative on error
  */
 static inline int8_t
 uk_tree_replace(struct uk_tree_node *old_entry, struct uk_tree_node *new_entry)
@@ -278,8 +340,13 @@ uk_tree_replace(struct uk_tree_node *old_entry, struct uk_tree_node *new_entry)
 	return 0;
 }
 
-/*
- * Takes a path of ints and returns the node found in that place
+/**
+ * Returns a node based on a given path.
+ *
+ * @param root where to start search
+ * @param path indexes of all next arrays
+ * @param depth length of the path array
+ * @return 0 on success, negative on error
  */
 static inline struct uk_tree_node *
 uk_tree_find(struct uk_tree_node *root,
@@ -297,8 +364,11 @@ uk_tree_find(struct uk_tree_node *root,
 	return root;
 }
 
-/*
- * Returns true if a node is a leaf and false otherwise
+/**
+ * Checks if a node is a leaf.
+ *
+ * @param node the node to check
+ * @return 0 if leaf, 1 if not
  */
 static inline int8_t
 uk_tree_is_leaf(struct uk_tree_node *node)
@@ -314,8 +384,11 @@ uk_tree_is_leaf(struct uk_tree_node *node)
 	return 1;
 }
 
-/*
- * Applies the function f on all nodes below a given node
+/**
+ * Applies a function on all nodes in postorder.
+ *
+ * @param node the place where to start applying
+ * @param f the function that applies an operation on nodes
  */
 static inline void
 uk_tree_node_apply(struct uk_tree_node *node, void (*f)(struct uk_tree_node *))
@@ -325,14 +398,13 @@ uk_tree_node_apply(struct uk_tree_node *node, void (*f)(struct uk_tree_node *))
 	if (!node)
 		return;
 
-	f(node);
-
-	if (!node->next)
-		return;
-
-	uk_tree_for_each_child(elem, node) {
-		uk_tree_node_apply(elem, f);
+	if (node->next) {
+		uk_tree_for_each_child(elem, node) {
+			uk_tree_node_apply(elem, f);
+		}
 	}
+
+	f(node);
 }
 
 #endif /* __STORE_TREE_H__ */
