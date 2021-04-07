@@ -46,6 +46,7 @@ struct uk_tree_node {
 	struct uk_tree_node **next;
 	uint16_t next_nodes_nr;
 	uint16_t next_nodes_free;
+	uint32_t flags;
 };
 
 static uint16_t __default_nodes_nr = 2;
