@@ -35,9 +35,10 @@
 
 #include <uk/store/tree.h>
 
-// TODO add uk_store structure that contains only a node?
+// TODO Save uk_tree_node-s in the section insteam of uk_store_entry-s?
 // TODO refcount -> hash path into integer and store it?
 
+/* All types used by the structure */
 enum uk_store_entry_type {
 	UK_STORE_NONE,
 	UK_STORE_ENT_BOOL,
@@ -57,6 +58,7 @@ enum uk_store_entry_type {
 	UK_STORE_ENT_VOIDSTAR,
 };
 
+/* Getter definitions */
 typedef _Bool (*uk_store_get_bool_func_t)(void);
 typedef int (*uk_store_get_int_func_t)(void);
 typedef short (*uk_store_get_short_func_t)(void);
@@ -73,6 +75,7 @@ typedef unsigned long long (*uk_store_get_ulonglong_func_t)(void);
 typedef void (*uk_store_get_void_func_t)(void);
 typedef void *(*uk_store_get_voidstar_func_t)(void);
 
+/* Setter definitions */
 typedef void (*uk_store_set_bool_func_t)(_Bool);
 typedef void (*uk_store_set_int_func_t)(int);
 typedef void (*uk_store_set_short_func_t)(short);
@@ -89,6 +92,8 @@ typedef void (*uk_store_set_ulonglong_func_t)(unsigned long long);
 typedef void (*uk_store_set_void_func_t)(void);
 typedef void (*uk_store_set_voidstar_func_t)(void *);
 
+
+/* Stores functions and their types and a node connection to the tree */
 struct uk_store_entry {
 	enum uk_store_entry_type get_type, set_type;
 	union {
@@ -128,6 +133,7 @@ struct uk_store_entry {
 	struct uk_tree_node node;
 };
 
+/* Section array start point */
 extern struct uk_store_entry *uk_store_libs;
 
 /* Used for registration and nothing else */
@@ -182,6 +188,11 @@ static const struct uk_store_entry uk_store_section_entry __unused = {
 		__UK_STORE_ENTRY_REG_H(uk_store_section_head);	\
 	} while (0)
 
+/**
+ * Initializes an empty entry.
+ *
+ * @param entry the entry to initialize
+ */
 static inline void
 uk_store_init_entry(struct uk_store_entry *entry)
 {
@@ -189,6 +200,13 @@ uk_store_init_entry(struct uk_store_entry *entry)
 	entry->get_type = entry->set_type = UK_STORE_NONE;
 }
 
+/**
+ * Initializes an empty entry and adds it to the place next pointers
+ *
+ * @param place the place where to add the new entry
+ * @param entry the entry to initialize and add
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_add_and_init_entry(struct uk_store_entry *place,
 				struct uk_store_entry *entry)
@@ -197,12 +215,27 @@ uk_store_add_and_init_entry(struct uk_store_entry *place,
 	return uk_tree_add_new(&place->node, &entry->node);
 }
 
+/**
+ * Adds an entry to the place next pointers
+ *
+ * @param place the place where to add the new entry
+ * @param entry the entry to add
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
 {
 	return uk_tree_add_existing(&place->node, &entry->node);
 }
 
+
+/**
+ * Removes the old entry and replaces it with the new one
+ *
+ * @param old the entry to remove
+ * @param new the entry to add
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_repl_entry(struct uk_store_entry *old, struct uk_store_entry *new)
 {
@@ -210,6 +243,12 @@ uk_store_repl_entry(struct uk_store_entry *old, struct uk_store_entry *new)
 	return uk_tree_replace(&old->node, &new->node);
 }
 
+/**
+ * Deletes an entry
+ *
+ * @param entry the entry to delete
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_del_entry(struct uk_store_entry *entry)
 {
@@ -217,6 +256,14 @@ uk_store_del_entry(struct uk_store_entry *entry)
 	return uk_tree_del(&entry->node);
 }
 
+/**
+ * Returns an entry after following the given path
+ *
+ * @param root the node where to start the search
+ * @param path the path to follow
+ * @param path_len the length of the path
+ * @return 0 on success or < 0 on fail
+ */
 static inline struct uk_store_entry *
 uk_store_get_entry_by_path(struct uk_store_entry *root,
 			const uint16_t *path, const uint16_t path_len)
@@ -226,6 +273,14 @@ uk_store_get_entry_by_path(struct uk_store_entry *root,
 	return node ? uk_tree_entry(node, struct uk_store_entry, node) : NULL;
 }
 
+/**
+ * Saves a new getter function in the entry
+ *
+ * @param entry the place where to store the function
+ * @param type the new type of the function
+ * @param func the function
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_save_getter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
@@ -297,6 +352,14 @@ uk_store_save_getter(struct uk_store_entry *entry,
 	return 0;
 }
 
+/**
+ * Saves a new setter function in the entry
+ *
+ * @param entry the place where to save the new function
+ * @param type the new type of the function
+ * @param func the function
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_save_setter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
@@ -368,12 +431,24 @@ uk_store_save_setter(struct uk_store_entry *entry,
 	return 0;
 }
 
+/**
+ * Checks if an entry is a file (leaf)
+ *
+ * @param entry the entry to check
+ * @return 1 if file, 0 if not, or < 0 on fail
+ */
 static inline int
 uk_store_is_file(struct uk_store_entry *entry)
 {
 	return uk_tree_is_leaf(&entry->node);
 }
 
+/**
+ * Checks if an entry is a folder (not leaf)
+ *
+ * @param entry the entry to check
+ * @return 1 if file, 0 if not, or < 0 on fail
+ */
 static inline int
 uk_store_is_folder(struct uk_store_entry *entry)
 {
@@ -382,6 +457,13 @@ uk_store_is_folder(struct uk_store_entry *entry)
 	return (ret < 0) ? ret : !ret;
 }
 
+/**
+ * Gets the value returned by the saved function and puts it in `out`
+ *
+ * @param entry the entry to use
+ * @param out the place where to store the result
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_get_value(struct uk_store_entry *entry, void *out)
 {
@@ -452,6 +534,13 @@ uk_store_get_value(struct uk_store_entry *entry, void *out)
 	return 0;
 }
 
+/**
+ * Sets the value from `in` with the saved function
+ *
+ * @param entry the entry to use
+ * @param in the value to give to the setter
+ * @return 0 on success or < 0 on fail
+ */
 static inline int
 uk_store_set_value(struct uk_store_entry *entry, void *in)
 {
