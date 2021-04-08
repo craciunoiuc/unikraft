@@ -128,7 +128,7 @@ static uint16_t __default_nodes_nr = 2;
  * @param node pointer to the node to be initialized
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 __uk_tree_init_node(struct uk_tree_node *node)
 {
 	if (unlikely(!node))
@@ -176,7 +176,7 @@ __uk_tree_del(struct uk_tree_node *tree_node)
  * @param place where to double the capacity
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 __uk_tree_double_size(struct uk_tree_node *place)
 {
 	if (unlikely(!place || !place->next))
@@ -204,7 +204,7 @@ __uk_tree_double_size(struct uk_tree_node *place)
  * @param place where to do the resize
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 uk_tree_shrink_to_fit(struct uk_tree_node *place)
 {
 	if (unlikely(!place || !place->next))
@@ -229,10 +229,10 @@ uk_tree_shrink_to_fit(struct uk_tree_node *place)
  * @param new_entry node to be added
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 __uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 {
-	int8_t ret = 0;
+	int ret = 0;
 
 	if (unlikely(!place->next_nodes_free)) {
 		ret = __uk_tree_double_size(place);
@@ -258,7 +258,7 @@ __uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
  * @param new_entry node to be added
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 uk_tree_add_new(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 {
 	__uk_tree_init_node(new_entry);
@@ -272,7 +272,7 @@ uk_tree_add_new(struct uk_tree_node *place, struct uk_tree_node *new_entry)
  * @param new_entry node to be added
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 uk_tree_add_existing(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 {
 	return __uk_tree_add(place, new_entry);
@@ -284,7 +284,7 @@ uk_tree_add_existing(struct uk_tree_node *place, struct uk_tree_node *new_entry)
  * @param tree_node node to be deleted
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 uk_tree_del(struct uk_tree_node *tree_node)
 {
 	struct uk_tree_node *parent = tree_node->prev;
@@ -316,11 +316,11 @@ uk_tree_del(struct uk_tree_node *tree_node)
  * @param new_entry the node to be added
  * @return 0 on success, negative on error
  */
-static inline int8_t
+static inline int
 uk_tree_replace(struct uk_tree_node *old_entry, struct uk_tree_node *new_entry)
 {
 	struct uk_tree_node *parent;
-	int8_t ret;
+	int ret;
 
 	if (unlikely(!old_entry))
 		return -EINVAL;
@@ -371,7 +371,7 @@ uk_tree_find(struct uk_tree_node *root,
  * @param node the node to check
  * @return 0 if leaf, 1 if not
  */
-static inline int8_t
+static inline int
 uk_tree_is_leaf(struct uk_tree_node *node)
 {
 	if (unlikely(!node || !node->next))
