@@ -37,8 +37,8 @@
 
 // TODO Save uk_tree_node-s in the section instead of uk_store_entry-s?
 // TODO refcount -> hash path into integer and store it?
-// TODO add name of entry to entry
 // TODO Reduce implementation to bare minimum
+// TODO Give paths like "ukalloc/1/alloc_mem" and use a root, or "1/alloc_mem" and a list of defines
 
 /* All types used by the structure */
 enum uk_store_entry_type {
@@ -202,7 +202,11 @@ static inline int
 uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 {
 	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
-	return uk_tree_del(&entry->node, &parent->node);
+
+	if (entry->entry_name)
+		free(entry->entry_name);
+
+	return uk_tree_del(&entry->node, (parent ? &parent->node : NULL));
 }
 
 /**
@@ -210,13 +214,56 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
  *
  * @param root the node where to start the search
  * @param path the path to follow
- * @param path_len the length of the path
- * @return 0 on success or < 0 on fail
+ * @return the entry or NULL if not found
  */
 static inline struct uk_store_entry *
-uk_store_get_entry_by_path(struct uk_store_entry *root,
-			const uint16_t *path, const uint16_t path_len)
+uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
 {
+	struct uk_store_entry *entry = NULL;
+	const char *slash;
+
+	if (*path == '\0')
+		return root;
+
+	slash = strchr(path, '/');
+	if (slash == NULL)
+		slash = strchr(path, '\0');
+
+	for (uint16_t idx = 0; idx < root->node.next_nodes_nr; ++idx) {
+		if (!root->node.next[idx])
+			continue;
+
+		entry = uk_tree_entry(root->node.next[idx],
+					struct uk_store_entry, node);
+
+		if (!strncmp(entry->entry_name, path, slash - path)) {
+			return uk_store_get_entry_by_path(entry,
+					slash + !!(*slash));
+		}
+	}
+
+	return NULL;
+}
+
+
+/**
+ * Updates the name of an entry
+ *
+ * @param entry the entry where to update the name
+ * @param name the new name
+ * @return 0 on success or < 0 on fail
+ */
+static inline int
+uk_store_update_name(struct uk_store_entry *entry, const char *name)
+{
+	if (entry->entry_name)
+		free(entry->entry_name);
+
+	entry->entry_name = strdup(name);
+
+	if (!entry->entry_name)
+		return -ENOMEM;
+
 	return 0;
 }
 
@@ -229,11 +276,11 @@ uk_store_get_entry_by_path(struct uk_store_entry *root,
  * @return 0 on success or < 0 on fail
  */
 static inline int
-uk_store_save_getter(struct uk_store_entry *entry,
+uk_store_update_getter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
 {
 	entry->get_type = type;
-	switch(entry->get_type) {
+	switch (entry->get_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
 		entry->get.s32 = func;
@@ -287,11 +334,11 @@ uk_store_save_getter(struct uk_store_entry *entry,
  * @return 0 on success or < 0 on fail
  */
 static inline int
-uk_store_save_setter(struct uk_store_entry *entry,
+uk_store_update_setter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
 {
 	entry->set_type = type;
-	switch(entry->set_type) {
+	switch (entry->set_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
 		entry->set.s32 = func;
@@ -329,7 +376,7 @@ uk_store_save_setter(struct uk_store_entry *entry,
 	case UK_STORE_ENT_UPTR:
 	case UK_STORE_ENT_CHARP:
 		entry->set.uptr = func;
-		break;	
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -358,7 +405,7 @@ uk_store_is_file(struct uk_store_entry *entry)
 static inline int
 uk_store_get_value(struct uk_store_entry *entry, void *out)
 {
-	switch(entry->get_type) {
+	switch (entry->get_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
 		*((__s32 *) out) = entry->get.s32();
@@ -400,7 +447,6 @@ uk_store_get_value(struct uk_store_entry *entry, void *out)
 	default:
 		return -EINVAL;
 	}
-	
 	return 0;
 }
 
@@ -414,7 +460,7 @@ uk_store_get_value(struct uk_store_entry *entry, void *out)
 static inline int
 uk_store_set_value(struct uk_store_entry *entry, void *in)
 {
-	switch(entry->set_type) {
+	switch (entry->set_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
 		entry->set.s32(*((__s32 *) in));
@@ -456,7 +502,6 @@ uk_store_set_value(struct uk_store_entry *entry, void *in)
 	default:
 		return -EINVAL;
 	}
-
 	return 0;
 }
 
