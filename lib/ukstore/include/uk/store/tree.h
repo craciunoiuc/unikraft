@@ -33,16 +33,15 @@
 #ifndef __STORE_TREE_H__
 #define __STORE_TREE_H__
 
-#include <uk/arch/atomic.h>
 #include <uk/arch/lcpu.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
 
+#define UK_TREE_LEAF_FLAG	1
+
 struct uk_tree_node {
-	struct uk_tree_node *prev;
 	struct uk_tree_node **next;
 	uint16_t next_nodes_nr;
 	uint16_t next_nodes_free;
@@ -62,55 +61,11 @@ static uint16_t __default_nodes_nr = 2;
 #define uk_tree_entry(ptr, type, field) __containerof(ptr, type, field)
 
 /**
- * Used internally for the index
- */
-#define __uk_tree_for_internal()	\
-	for (int32_t __uk_tree_idx = -1; unlikely(__uk_tree_idx == -1);)
-
-
-/**
- * Iterates through all next nodes.
- *
- * Checkpatch error is false positive.
- *
- * @param p pointer iterator
- * @param root the parent where to iterate
- */
-#define uk_tree_for_each_child(p, root)					\
-	__uk_tree_for_internal()					\
-		for (__uk_tree_idx = 0, p = (root)->next[__uk_tree_idx];\
-			__uk_tree_idx < (root)->next_nodes_nr;		\
-			++__uk_tree_idx,				\
-			p = (root)->next[__uk_tree_idx])
-
-
-/**
- * Iterates through all next nodes and gets the entry
- *
- * Checkpatch error is false positive.
- *
- * @param p pointer iterator
- * @param root the parent where to iterate
- * @param field structure field name
- */
-#define uk_tree_for_each_child_entry(p, root, field)			\
-	__uk_tree_for_internal()					\
-		for (__uk_tree_idx = 0,	(p) = uk_tree_entry(		\
-				(&(root)->field)->next[__uk_tree_idx],	\
-				typeof(*(root)), field);		\
-			__uk_tree_idx < (&(root)->field)->next_nodes_nr;\
-			++__uk_tree_idx,				\
-			(p) = uk_tree_entry(				\
-				(&(root)->field)->next[__uk_tree_idx],	\
-				typeof(*(root)), field))
-
-
-/**
  * Initializes a node / the root.
  *
  * @param name the root
  */
-#define UK_TREE_ROOT_INIT(name)	\
+#define UK_TREE_NODE_INIT(name)	\
 	__uk_tree_init_node(name)
 
 
@@ -134,13 +89,14 @@ __uk_tree_init_node(struct uk_tree_node *node)
 	if (unlikely(!node))
 		return -EINVAL;
 
-	node->prev = NULL;
 	node->next_nodes_nr = __default_nodes_nr;
+	node->flags = 0;
 	node->next = (struct uk_tree_node **)
 			calloc(node->next_nodes_nr, sizeof(*node->next));
 
 	if (likely(node->next)) {
-		UK_WRITE_ONCE(node->next_nodes_free, __default_nodes_nr);
+		node->next_nodes_free = __default_nodes_nr;
+		node->flags |= UK_TREE_LEAF_FLAG;
 		return 0;
 	} else {
 		return -ENOMEM;
@@ -230,7 +186,7 @@ uk_tree_shrink_to_fit(struct uk_tree_node *place)
  * @return 0 on success, negative on error
  */
 static inline int
-__uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
+uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 {
 	int ret = 0;
 
@@ -242,127 +198,45 @@ __uk_tree_add(struct uk_tree_node *place, struct uk_tree_node *new_entry)
 
 	for (uint16_t i = 0; i < place->next_nodes_nr; ++i) {
 		if (place->next[i] == NULL) {
-			new_entry->prev = place;
 			place->next[i] = new_entry;
+			place->flags &= ~UK_TREE_LEAF_FLAG;
 			break;
 		}
 	}
-	UK_WRITE_ONCE(place->next_nodes_free, place->next_nodes_free - 1);
+	place->next_nodes_free--;
 	return ret;
-}
-
-/**
- * Initializes a node and adds it to the tree.
- *
- * @param place where to add the node as a child
- * @param new_entry node to be added
- * @return 0 on success, negative on error
- */
-static inline int
-uk_tree_add_new(struct uk_tree_node *place, struct uk_tree_node *new_entry)
-{
-	__uk_tree_init_node(new_entry);
-	return __uk_tree_add(place, new_entry);
-}
-
-/**
- * Adds an already initalized node to the tree.
- *
- * @param place where to add the node as a child
- * @param new_entry node to be added
- * @return 0 on success, negative on error
- */
-static inline int
-uk_tree_add_existing(struct uk_tree_node *place, struct uk_tree_node *new_entry)
-{
-	return __uk_tree_add(place, new_entry);
 }
 
 /**
  * Deletes a node and all children and removes it as child from its parent.
  *
- * @param tree_node node to be deleted
+ * @param node_to_del node to be deleted
+ * @param parent node which has node_to_del as a child
  * @return 0 on success, negative on error
  */
 static inline int
-uk_tree_del(struct uk_tree_node *tree_node)
+uk_tree_del(struct uk_tree_node *node_to_del, struct uk_tree_node *parent)
 {
-	struct uk_tree_node *parent = tree_node->prev;
-
-	if (unlikely(!tree_node))
+	if (unlikely(!node_to_del))
 		return -EINVAL;
 
 	if (likely(parent)) {
 		for (uint16_t i = 0; i < parent->next_nodes_nr; ++i) {
-			if (unlikely(parent->next[i] == tree_node)) {
-				UK_WRITE_ONCE(parent->next[i], NULL);
-				UK_WRITE_ONCE(parent->next_nodes_free,
-						parent->next_nodes_free + 1);
+			if (unlikely(parent->next[i] == node_to_del)) {
+				parent->next[i] = NULL;
+				parent->next_nodes_free++;
 				break;
 			}
 		}
+		if (parent->next_nodes_free == parent->next_nodes_nr)
+			parent->flags |= UK_TREE_LEAF_FLAG;
 	}
 
-	__uk_tree_del(tree_node);
 
-	tree_node->next = NULL;
+	__uk_tree_del(node_to_del);
+
+	node_to_del->next = NULL;
 	return 0;
-}
-
-/**
- * Replaces a node with another existing one.
- *
- * @param old_entry the node to be replaced
- * @param new_entry the node to be added
- * @return 0 on success, negative on error
- */
-static inline int
-uk_tree_replace(struct uk_tree_node *old_entry, struct uk_tree_node *new_entry)
-{
-	struct uk_tree_node *parent;
-	int ret;
-
-	if (unlikely(!old_entry))
-		return -EINVAL;
-
-	parent = old_entry->prev;
-
-	ret = uk_tree_del(old_entry);
-	if (ret)
-		return ret;
-
-	for (uint16_t i = 0; i < parent->next_nodes_nr; ++i) {
-		if (!parent->next[i]) {
-			parent->next[i] = new_entry;
-			break;
-		}
-	}
-
-	return 0;
-}
-
-/**
- * Returns a node based on a given path.
- *
- * @param root where to start search
- * @param path indexes of all next arrays
- * @param depth length of the path array
- * @return 0 on success, negative on error
- */
-static inline struct uk_tree_node *
-uk_tree_find(struct uk_tree_node *root,
-		const uint16_t *path, const uint16_t depth)
-{
-	if (unlikely(!root || !root->next))
-		return NULL;
-
-	for (uint16_t i = 0; i < depth; ++i) {
-		if (unlikely(!root->next[path[i]]))
-			return NULL;
-		root = root->next[path[i]];
-	}
-
-	return root;
 }
 
 /**
@@ -377,35 +251,7 @@ uk_tree_is_leaf(struct uk_tree_node *node)
 	if (unlikely(!node || !node->next))
 		return 1;
 
-	for (uint16_t i = 0; i < node->next_nodes_nr; ++i) {
-		if (node->next[i])
-			return 0;
-	}
-
-	return 1;
-}
-
-/**
- * Applies a function on all nodes in postorder.
- *
- * @param node the place where to start applying
- * @param f the function that applies an operation on nodes
- */
-static inline void
-uk_tree_node_apply(struct uk_tree_node *node, void (*f)(struct uk_tree_node *))
-{
-	struct uk_tree_node *elem;
-
-	if (!node)
-		return;
-
-	if (node->next) {
-		uk_tree_for_each_child(elem, node) {
-			uk_tree_node_apply(elem, f);
-		}
-	}
-
-	f(node);
+	return node->flags & UK_TREE_LEAF_FLAG;
 }
 
 #endif /* __STORE_TREE_H__ */
