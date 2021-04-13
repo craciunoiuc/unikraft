@@ -35,10 +35,10 @@
 
 #include <uk/store/tree.h>
 
-// TODO Save uk_tree_node-s in the section instead of uk_store_entry-s?
 // TODO refcount -> hash path into integer and store it?
 // TODO Reduce implementation to bare minimum
-// TODO Give paths like "ukalloc/1/alloc_mem" and use a root, or "1/alloc_mem" and a list of defines
+// TODO Give paths like "ukalloc/1/alloc_mem" and use a root, or "1/alloc_mem" and a list of defines?
+// (Save uk_tree_node-s in the section instead of uk_store_entry-s)
 
 /* All types used by the structure */
 enum uk_store_entry_type {
@@ -189,6 +189,9 @@ uk_store_init_entry(struct uk_store_entry *entry)
 static inline int
 uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
 {
+	if (unlikely(!place || !entry))
+		return EINVAL;
+
 	return uk_tree_add(&place->node, &entry->node);
 }
 
@@ -201,6 +204,9 @@ uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
 static inline int
 uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
 
 	if (entry->entry_name)
@@ -256,6 +262,9 @@ uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
 static inline int
 uk_store_update_name(struct uk_store_entry *entry, const char *name)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	if (entry->entry_name)
 		free(entry->entry_name);
 
@@ -279,6 +288,9 @@ static inline int
 uk_store_update_getter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	entry->get_type = type;
 	switch (entry->get_type) {
 	case UK_STORE_ENT_INT:
@@ -337,6 +349,9 @@ static inline int
 uk_store_update_setter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	entry->set_type = type;
 	switch (entry->set_type) {
 	case UK_STORE_ENT_INT:
@@ -392,6 +407,9 @@ uk_store_update_setter(struct uk_store_entry *entry,
 static inline int
 uk_store_is_file(struct uk_store_entry *entry)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	return uk_tree_is_leaf(&entry->node);
 }
 
@@ -405,6 +423,9 @@ uk_store_is_file(struct uk_store_entry *entry)
 static inline int
 uk_store_get_value(struct uk_store_entry *entry, void *out)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	switch (entry->get_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
@@ -460,6 +481,9 @@ uk_store_get_value(struct uk_store_entry *entry, void *out)
 static inline int
 uk_store_set_value(struct uk_store_entry *entry, void *in)
 {
+	if (unlikely(!entry))
+		return EINVAL;
+
 	switch (entry->set_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
