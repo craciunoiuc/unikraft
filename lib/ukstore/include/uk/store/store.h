@@ -35,10 +35,10 @@
 
 #include <uk/store/tree.h>
 
-// TODO refcount -> hash path into integer and store it?
+// TODO Use static array cache or inside entries?
 // TODO Reduce implementation to bare minimum
-// TODO Give paths like "ukalloc/1/alloc_mem" and use a root, or "1/alloc_mem" and a list of defines?
-// (Save uk_tree_node-s in the section instead of uk_store_entry-s)
+// TODO Move this to `inlcude/store.h`?
+// TODO Tidy up
 
 /* All types used by the structure */
 enum uk_store_entry_type {
@@ -108,6 +108,16 @@ struct uk_store_entry {
 	char *entry_name;
 	struct uk_tree_node node;
 };
+
+// TODO Change?
+#define UK_STORE_REFCOUNT_MAX_SIZE 128
+
+struct uk_store_refcount {
+	const char *path;
+	struct uk_store_entry *entry;
+};
+
+struct uk_store_refcount refcount[UK_STORE_REFCOUNT_MAX_SIZE];
 
 /* Section array start point */
 extern struct uk_store_entry *uk_store_libs;
@@ -190,13 +200,13 @@ static inline int
 uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
 {
 	if (unlikely(!place || !entry))
-		return EINVAL;
+		return -EINVAL;
 
 	return uk_tree_add(&place->node, &entry->node);
 }
 
 /**
- * Deletes an entry
+ * Deletes an entry and its cache entries
  *
  * @param entry the entry to delete
  * @return 0 on success or < 0 on fail
@@ -205,14 +215,145 @@ static inline int
 uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
 
 	if (entry->entry_name)
 		free(entry->entry_name);
 
+	for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i) {
+		if (refcount[i].entry == entry) {
+			refcount[i].entry = NULL;
+			refcount[i].path = NULL;
+		}
+	}
+
 	return uk_tree_del(&entry->node, (parent ? &parent->node : NULL));
+}
+
+/**
+ * Checks if an entry is cached
+ *
+ * @param path the path to check for
+ * @return the position occupied or < 0 if error
+ */
+static inline int
+uk_store_is_cached(const char *path)
+{
+	int to_find = (uintptr_t)path % UK_STORE_REFCOUNT_MAX_SIZE;
+	int iter = to_find;
+
+	if (unlikely(!path)) {
+		return -EINVAL;
+	}
+
+	while (iter != UK_STORE_REFCOUNT_MAX_SIZE) {
+		if (refcount[iter].path == path) {
+			return iter;
+		}
+		iter++;
+	}
+
+	iter = 0;
+
+	while (iter != to_find) {
+		if (refcount[iter].path == path) {
+			return iter;
+		}
+		iter++;
+	}
+
+	return -1;
+}
+
+/**
+ * Adds an entry to the cache
+ *
+ * @param entry the entry to store
+ * @param path the path to check for
+ * @return the position occupied or < 0 if error
+ */
+static inline int
+uk_store_cache_entry(struct uk_store_entry *entry, const char *path)
+{
+	int to_store = (uintptr_t)path % UK_STORE_REFCOUNT_MAX_SIZE;
+	int iter = to_store;
+
+	if (unlikely(!path)) {
+		return -EINVAL;
+	}
+
+	while (iter != UK_STORE_REFCOUNT_MAX_SIZE) {
+		if (!refcount[iter].path) {
+			refcount[iter].path = path;
+			refcount[iter].entry = entry;
+			return iter;
+		}
+		iter++;
+	}
+
+	iter = 0;
+
+	while (iter != to_store) {
+		if (!refcount[iter].path) {
+			refcount[iter].path = path;
+			refcount[iter].entry = entry;
+			return iter;
+		}
+		iter++;
+	}
+
+	return -ENOMEM;
+}
+
+/**
+ * Clears a path-entry association
+ *
+ * @param path the path to check for
+ * @return the position released or < 0 if error
+ */
+static inline int
+uk_store_cache_release_path(const char *path)
+{
+	int to_release = uk_store_is_cached(path);
+
+	if (to_release >= 0) {
+		refcount[to_release].entry = NULL;
+		refcount[to_release].path = NULL;
+	}
+
+	return to_release;
+}
+
+/**
+ * Clears all cached path-entry associations
+ *
+ * @param entry the entry to clear
+ */
+static inline void
+uk_store_cache_release_entry(struct uk_store_entry *entry)
+{
+	for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i) {
+		if (refcount[i].entry == entry) {
+			refcount[i].entry = NULL;
+			refcount[i].path = NULL;
+		}
+	}
+}
+
+/**
+ * Checks for an entry to the cache with the given path and returns it
+ *
+ * @param path the path wanted
+ * @return the entry or NULL if not found
+ */
+static inline struct uk_store_entry *
+uk_store_get_entry_by_cache(const char *path)
+{
+	int to_ret = uk_store_is_cached(path);
+
+	return (to_ret >= 0) ? refcount[to_ret].entry : NULL;
 }
 
 /**
@@ -251,6 +392,25 @@ uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
 	return NULL;
 }
 
+/**
+ * Returns a saved entry
+ *
+ * @param entry the entry where to start the search
+ * @param path the path to follow
+ * @return the found entry or NULL
+ */
+static inline struct uk_store_entry *
+uk_store_get_entry(struct uk_store_entry *root, const char *path)
+{
+	struct uk_store_entry *to_ret = uk_store_get_entry_by_cache(path);
+
+	if (!to_ret) {
+		uk_store_cache_entry(root, path);
+		return uk_store_get_entry_by_path(root, path);
+	}
+	return to_ret;
+}
+
 
 /**
  * Updates the name of an entry
@@ -263,7 +423,7 @@ static inline int
 uk_store_update_name(struct uk_store_entry *entry, const char *name)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	if (entry->entry_name)
 		free(entry->entry_name);
@@ -289,7 +449,7 @@ uk_store_update_getter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	entry->get_type = type;
 	switch (entry->get_type) {
@@ -350,7 +510,7 @@ uk_store_update_setter(struct uk_store_entry *entry,
 			enum uk_store_entry_type type, void *func)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	entry->set_type = type;
 	switch (entry->set_type) {
@@ -408,7 +568,7 @@ static inline int
 uk_store_is_file(struct uk_store_entry *entry)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	return uk_tree_is_leaf(&entry->node);
 }
@@ -424,7 +584,7 @@ static inline int
 uk_store_get_value(struct uk_store_entry *entry, void *out)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	switch (entry->get_type) {
 	case UK_STORE_ENT_INT:
@@ -482,7 +642,7 @@ static inline int
 uk_store_set_value(struct uk_store_entry *entry, void *in)
 {
 	if (unlikely(!entry))
-		return EINVAL;
+		return -EINVAL;
 
 	switch (entry->set_type) {
 	case UK_STORE_ENT_INT:

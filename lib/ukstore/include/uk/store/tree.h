@@ -87,7 +87,7 @@ static inline int
 __uk_tree_init_node(struct uk_tree_node *node)
 {
 	if (unlikely(!node))
-		return EINVAL;
+		return -EINVAL;
 
 	node->next_nodes_nr = __default_nodes_nr;
 	node->flags = 0;
@@ -99,7 +99,7 @@ __uk_tree_init_node(struct uk_tree_node *node)
 		node->flags |= UK_TREE_LEAF_FLAG;
 		return 0;
 	} else {
-		return ENOMEM;
+		return -ENOMEM;
 	}
 }
 
@@ -136,7 +136,7 @@ static inline int
 __uk_tree_double_size(struct uk_tree_node *place)
 {
 	if (unlikely(!place || !place->next))
-		return EINVAL;
+		return -EINVAL;
 
 	place->next_nodes_free = place->next_nodes_nr;
 	place->next_nodes_nr <<= 1;
@@ -148,7 +148,7 @@ __uk_tree_double_size(struct uk_tree_node *place)
 		sizeof(place->next) * place->next_nodes_free);
 
 	if (unlikely(!place->next))
-		return ENOMEM;
+		return -ENOMEM;
 
 	return 0;
 }
@@ -164,7 +164,7 @@ static inline int
 uk_tree_shrink_to_fit(struct uk_tree_node *place)
 {
 	if (unlikely(!place || !place->next))
-		return EINVAL;
+		return -EINVAL;
 
 	place->next_nodes_nr -= place->next_nodes_free;
 	place->next_nodes_free = 0;
@@ -172,7 +172,7 @@ uk_tree_shrink_to_fit(struct uk_tree_node *place)
 				sizeof(*place->next) * place->next_nodes_nr);
 
 	if (unlikely(!place->next))
-		return ENOMEM;
+		return -ENOMEM;
 
 	return 0;
 }
@@ -218,7 +218,7 @@ static inline int
 uk_tree_del(struct uk_tree_node *node_to_del, struct uk_tree_node *parent)
 {
 	if (unlikely(!node_to_del))
-		return EINVAL;
+		return -EINVAL;
 
 	if (likely(parent)) {
 		for (uint16_t i = 0; i < parent->next_nodes_nr; ++i) {
