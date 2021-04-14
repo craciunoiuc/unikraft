@@ -36,6 +36,7 @@
 #include <uk/store/tree.h>
 
 // TODO Use static array cache or inside entries?
+// TODO Move refcount to use LinkedList buckets? (what about strdup(string))
 // TODO Reduce implementation to bare minimum
 // TODO Move this to `inlcude/store.h`?
 // TODO Tidy up
@@ -110,14 +111,16 @@ struct uk_store_entry {
 };
 
 // TODO Change?
-#define UK_STORE_REFCOUNT_MAX_SIZE 128
+#define UK_STORE_REFCOUNT_MAX_SIZE 127
 
+/* Path -> entry associations */
 struct uk_store_refcount {
 	const char *path;
 	struct uk_store_entry *entry;
 };
 
-struct uk_store_refcount refcount[UK_STORE_REFCOUNT_MAX_SIZE];
+/* Buffer to store associations for faster access */
+static struct uk_store_refcount refcount[UK_STORE_REFCOUNT_MAX_SIZE];
 
 /* Section array start point */
 extern struct uk_store_entry *uk_store_libs;
@@ -233,34 +236,31 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 }
 
 /**
- * Checks if an entry is cached
+ * Searches for an association in the cache
  *
  * @param path the path to check for
  * @return the position occupied or < 0 if error
  */
 static inline int
-uk_store_is_cached(const char *path)
+uk_store_cache_pos(const char *path)
 {
 	int to_find = (uintptr_t)path % UK_STORE_REFCOUNT_MAX_SIZE;
 	int iter = to_find;
 
-	if (unlikely(!path)) {
+	if (unlikely(!path))
 		return -EINVAL;
-	}
 
 	while (iter != UK_STORE_REFCOUNT_MAX_SIZE) {
-		if (refcount[iter].path == path) {
+		if (refcount[iter].path == path)
 			return iter;
-		}
 		iter++;
 	}
 
 	iter = 0;
 
 	while (iter != to_find) {
-		if (refcount[iter].path == path) {
+		if (refcount[iter].path == path)
 			return iter;
-		}
 		iter++;
 	}
 
@@ -280,9 +280,8 @@ uk_store_cache_entry(struct uk_store_entry *entry, const char *path)
 	int to_store = (uintptr_t)path % UK_STORE_REFCOUNT_MAX_SIZE;
 	int iter = to_store;
 
-	if (unlikely(!path)) {
+	if (unlikely(!path))
 		return -EINVAL;
-	}
 
 	while (iter != UK_STORE_REFCOUNT_MAX_SIZE) {
 		if (!refcount[iter].path) {
@@ -316,7 +315,7 @@ uk_store_cache_entry(struct uk_store_entry *entry, const char *path)
 static inline int
 uk_store_cache_release_path(const char *path)
 {
-	int to_release = uk_store_is_cached(path);
+	int to_release = uk_store_cache_pos(path);
 
 	if (to_release >= 0) {
 		refcount[to_release].entry = NULL;
@@ -351,7 +350,7 @@ uk_store_cache_release_entry(struct uk_store_entry *entry)
 static inline struct uk_store_entry *
 uk_store_get_entry_by_cache(const char *path)
 {
-	int to_ret = uk_store_is_cached(path);
+	int to_ret = uk_store_cache_pos(path);
 
 	return (to_ret >= 0) ? refcount[to_ret].entry : NULL;
 }
@@ -411,6 +410,20 @@ uk_store_get_entry(struct uk_store_entry *root, const char *path)
 	return to_ret;
 }
 
+/**
+ * Checks if an entry is a file (leaf)
+ *
+ * @param entry the entry to check
+ * @return 1 if file, 0 if not, or < 0 on fail
+ */
+static inline int
+uk_store_is_file(struct uk_store_entry *entry)
+{
+	if (unlikely(!entry))
+		return -EINVAL;
+
+	return uk_tree_is_leaf(&entry->node);
+}
 
 /**
  * Updates the name of an entry
@@ -556,21 +569,6 @@ uk_store_update_setter(struct uk_store_entry *entry,
 		return -EINVAL;
 	}
 	return 0;
-}
-
-/**
- * Checks if an entry is a file (leaf)
- *
- * @param entry the entry to check
- * @return 1 if file, 0 if not, or < 0 on fail
- */
-static inline int
-uk_store_is_file(struct uk_store_entry *entry)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	return uk_tree_is_leaf(&entry->node);
 }
 
 /**
