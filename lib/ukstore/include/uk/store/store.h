@@ -235,6 +235,14 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 	return uk_tree_del(&entry->node, (parent ? &parent->node : NULL));
 }
 
+/* Taken from https://xorshift.di.unimi.it/splitmix64.c */
+static inline uint64_t
+uk_store_cache_hash(uint64_t x) {
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return (x ^ (x >> 31)) % UK_STORE_REFCOUNT_MAX_SIZE;
+}
+
 /**
  * Searches for an association in the cache
  *
@@ -244,7 +252,7 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 static inline int
 uk_store_cache_pos(const char *path)
 {
-	int to_find = (uintptr_t)path % UK_STORE_REFCOUNT_MAX_SIZE;
+	int to_find = uk_store_cache_hash((uintptr_t)path);
 	int iter = to_find;
 
 	if (unlikely(!path))
@@ -277,7 +285,7 @@ uk_store_cache_pos(const char *path)
 static inline int
 uk_store_cache_entry(struct uk_store_entry *entry, const char *path)
 {
-	int to_store = (uintptr_t)path % UK_STORE_REFCOUNT_MAX_SIZE;
+	int to_store = uk_store_cache_hash((uintptr_t)path);
 	int iter = to_store;
 
 	if (unlikely(!path))
