@@ -36,10 +36,8 @@
 #include <uk/store/tree.h>
 #include <uk/list.h>
 
-// TODO Use static array cache or inside entries?
-// TODO Move refcount to use LinkedList buckets? (what about strdup(string))
 // TODO Reduce implementation to bare minimum
-// TODO Move this to `inlcude/store.h`?
+// TODO Move this to `include/store.h`?
 // TODO Tidy up
 
 /* All types used by the structure */
@@ -108,6 +106,7 @@ struct uk_store_entry {
 		uk_store_set_uptr_func_t uptr;
 	} set;
 	char *entry_name;
+	int64_t refcount;
 	struct uk_tree_node node;
 };
 
@@ -145,6 +144,7 @@ extern struct uk_store_entry *uk_store_libs;
 			(uk_store_libs + (offset));			\
 		to_reg->get_type = to_reg->set_type = UK_STORE_ENT_NONE;\
 		to_reg->entry_name = strdup(name);			\
+		to_reg->refcount = 0;					\
 		UK_TREE_NODE_INIT(&to_reg->node);			\
 		__UK_STORE_ENTRY_REG(_uk_store_section_head_##entry);	\
 	} while (0)
@@ -158,7 +158,6 @@ static inline void
 uk_store_init_entry(struct uk_store_entry *entry)
 {
 	memset(entry, 0, sizeof(*entry));
-	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
 	UK_TREE_NODE_INIT(&entry->node);
 }
 
@@ -246,8 +245,32 @@ uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
 static inline struct uk_store_entry *
 uk_store_get_entry(struct uk_store_entry *root, const char *path)
 {
+	struct uk_store_entry *ret = uk_store_get_entry_by_path(root, path);
 
-	return uk_store_get_entry_by_path(root, path);
+	if (ret)
+		ret->refcount++;
+
+	return ret;
+}
+
+/**
+ * Returns a saved entry
+ *
+ * @param entry the entry where to start the search
+ * @param path the path to follow
+ * @return the found entry or NULL
+ */
+static inline void
+uk_store_release_entry(struct uk_store_entry **entry)
+{
+	if (unlikely(!entry))
+		return;
+
+	(*entry)->refcount--;
+	if((*entry)->refcount <= 0) {
+		(*entry)->refcount = 0;
+		*entry = NULL;
+	}
 }
 
 /**
