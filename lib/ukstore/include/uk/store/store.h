@@ -111,20 +111,6 @@ struct uk_store_entry {
 	struct uk_tree_node node;
 };
 
-// TODO Change?
-#define UK_STORE_REFCOUNT_MAX_SIZE 127
-
-/* Path -> entry associations */
-struct uk_store_refcount {
-	const char *path;
-	struct uk_store_entry *entry;
-	struct uk_list_head head;
-};
-
-/* Buffer to store associations for faster access (sepparate caches) */
-static struct uk_list_head refcount[UK_STORE_REFCOUNT_MAX_SIZE];
-static int8_t init_list = 1;
-
 /* Section array start point */
 extern struct uk_store_entry *uk_store_libs;
 
@@ -164,19 +150,6 @@ extern struct uk_store_entry *uk_store_libs;
 	} while (0)
 
 /**
- * Registers an entry in the section.
- *
- * @param offset the offset where to register
- * @param entry the entry to register space for
- */
-#define UK_STORE_STATIC_REGISTER(offset, entry)				\
-	do {								\
-		struct uk_store_entry *to_reg =				\
-			(uk_store_libs + (offset));			\
-		__UK_STORE_ENTRY_REG(_uk_store_section_head_##entry);	\
-	} while (0)
-
-/**
  * Initializes an empty entry.
  *
  * @param entry the entry to initialize
@@ -187,12 +160,6 @@ uk_store_init_entry(struct uk_store_entry *entry)
 	memset(entry, 0, sizeof(*entry));
 	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
 	UK_TREE_NODE_INIT(&entry->node);
-
-	if (unlikely(init_list)) {
-		init_list = 0;
-		for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i)
-			UK_INIT_LIST_HEAD(&refcount[i]);
-	}
 }
 
 /**
@@ -232,111 +199,6 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 	return uk_tree_del(&entry->node, (parent ? &parent->node : NULL));
 }
 
-/* Taken from https://xorshift.di.unimi.it/splitmix64.c */
-static inline uint64_t
-uk_store_cache_hash(uint64_t x) {
-	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-	x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-	return (x ^ (x >> 31)) % UK_STORE_REFCOUNT_MAX_SIZE;
-}
-
-/**
- * Searches for an association in the cache
- *
- * @param path the path to check for
- * @return the association or NULL on error
- */
-static inline struct uk_store_refcount *
-uk_store_cache_find(const char *path)
-{
-	int bucket = uk_store_cache_hash((uintptr_t)path);
-	struct uk_store_refcount *to_ret;
-
-	if (unlikely(!path))
-		return NULL;
-
-	uk_list_for_each_entry(to_ret, &refcount[bucket], head) {
-		if (to_ret->path == path)
-			return to_ret;
-	}
-
-	return NULL;
-}
-
-/**
- * Adds an entry to the cache
- *
- * @param entry the entry to store
- * @param path the path to check for
- * @return the position occupied or < 0 if error
- */
-static inline int
-uk_store_cache_entry(struct uk_store_entry *entry, const char *path)
-{
-	int to_store = uk_store_cache_hash((uintptr_t)path);
-	struct uk_store_refcount *assoc;
-
-	if (unlikely(!path))
-		return -EINVAL;
-
-	assoc = calloc(1, sizeof(*assoc));
-	if (!assoc)
-		return -ENOMEM;
-
-	assoc->entry = entry;
-	assoc->path = path;
-
-	uk_list_add_tail(&assoc->head, &refcount[to_store]);
-
-	return 0;
-}
-
-/**
- * Clears a path-entry association
- *
- * @param path the path to check for
- */
-static inline void
-uk_store_cache_release_path(const char *path)
-{
-	struct uk_store_refcount *to_release = uk_store_cache_find(path);
-
-	if (to_release != NULL) {
-		uk_list_del(&to_release->head);
-		free(to_release);
-	}
-}
-
-/**
- * Flush the cache 
- *
- */
-static inline void
-uk_store_cache_release_all()
-{
-	struct uk_store_refcount *p, *n;
-
-	for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i) {
-		uk_list_for_each_entry_safe(p, n, &refcount[i], head) {
-			uk_list_del(&p->head);
-			free(p);
-		}
-	}
-}
-
-/**
- * Checks for an entry to the cache with the given path and returns it
- *
- * @param path the path wanted
- * @return the entry or NULL if not found
- */
-static inline struct uk_store_entry *
-uk_store_get_entry_by_cache(const char *path)
-{
-	struct uk_store_refcount *to_ret = uk_store_cache_find(path);
-
-	return to_ret ? to_ret->entry : NULL;
-}
 
 /**
  * Returns an entry after following the given path
@@ -384,13 +246,8 @@ uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
 static inline struct uk_store_entry *
 uk_store_get_entry(struct uk_store_entry *root, const char *path)
 {
-	struct uk_store_entry *to_ret = uk_store_get_entry_by_cache(path);
 
-	if (!to_ret) {
-		uk_store_cache_entry(root, path);
-		return uk_store_get_entry_by_path(root, path);
-	}
-	return to_ret;
+	return uk_store_get_entry_by_path(root, path);
 }
 
 /**
