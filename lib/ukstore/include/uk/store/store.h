@@ -34,6 +34,7 @@
 #define __STORE_INTERNAL_H__
 
 #include <uk/store/tree.h>
+#include <uk/list.h>
 
 // TODO Use static array cache or inside entries?
 // TODO Move refcount to use LinkedList buckets? (what about strdup(string))
@@ -117,36 +118,32 @@ struct uk_store_entry {
 struct uk_store_refcount {
 	const char *path;
 	struct uk_store_entry *entry;
+	struct uk_list_head head;
 };
 
-/* Buffer to store associations for faster access */
-static struct uk_store_refcount refcount[UK_STORE_REFCOUNT_MAX_SIZE];
+/* Buffer to store associations for faster access (sepparate caches) */
+static struct uk_list_head refcount[UK_STORE_REFCOUNT_MAX_SIZE];
+static int8_t init_list = 1;
 
 /* Section array start point */
 extern struct uk_store_entry *uk_store_libs;
 
-/* Used for registration and nothing else */
-static struct uk_store_entry uk_store_section_head __unused;
-static const struct uk_store_entry uk_store_section_entry __unused = {
-	.get_type = UK_STORE_ENT_NONE
-};
+/**
+ * Must be used to define all entries registered in the section.
+ * This is used to ensure that there are no overlaps in memory.
+ *
+ * @param name the entry name
+ */
+#define UK_STORE_DEFINE_ENTRY(name)	\
+	static struct uk_store_entry _uk_store_section_head_##name __unused
 
 /**
  * Adds an entry to the section. Not to be called directly.
  *
  * @param entry the entry in the section
  */
-#define __UK_STORE_ENTRY_REG(entry)				\
-	__attribute((__section__(".uk_store_libs_list")))	\
-	static struct uk_store_entry __ptr_##entry __used = entry
-
-/**
- * Adds an entry to the section. Not to be called directly.
- *
- * @param entry the entry in the section
- */
-#define __UK_STORE_ENTRY_REG_H(entry)				\
-	__attribute((__section__(".uk_store_libs_list")))	\
+#define __UK_STORE_ENTRY_REG(entry)					\
+	__attribute((__section__(".uk_store_libs_list")))		\
 	static struct uk_store_entry *__ptr_##entry __used = &entry
 
 /**
@@ -154,29 +151,29 @@ static const struct uk_store_entry uk_store_section_entry __unused = {
  *
  * @param offset the offset where to register
  * @param name the name of the entry to save (char *)
+ * @param entry the entry to register space for
  */
-#define UK_STORE_STATIC_REGISTER_INIT(offset, name)			\
+#define UK_STORE_STATIC_REGISTER_INIT(offset, name, entry)		\
 	do {								\
 		struct uk_store_entry *to_reg =				\
 			(uk_store_libs + (offset));			\
 		to_reg->get_type = to_reg->set_type = UK_STORE_ENT_NONE;\
 		to_reg->entry_name = strdup(name);			\
 		UK_TREE_NODE_INIT(&to_reg->node);			\
-		__UK_STORE_ENTRY_REG(uk_store_section_entry);		\
-		__UK_STORE_ENTRY_REG_H(uk_store_section_head);		\
+		__UK_STORE_ENTRY_REG(_uk_store_section_head_##entry);	\
 	} while (0)
 
 /**
  * Registers an entry in the section.
  *
  * @param offset the offset where to register
+ * @param entry the entry to register space for
  */
-#define UK_STORE_STATIC_REGISTER(offset)			\
-	do {							\
-		struct uk_store_entry *to_reg =			\
-			(uk_store_libs + (offset));		\
-		__UK_STORE_ENTRY_REG(uk_store_section_entry);	\
-		__UK_STORE_ENTRY_REG_H(uk_store_section_head);	\
+#define UK_STORE_STATIC_REGISTER(offset, entry)				\
+	do {								\
+		struct uk_store_entry *to_reg =				\
+			(uk_store_libs + (offset));			\
+		__UK_STORE_ENTRY_REG(_uk_store_section_head_##entry);	\
 	} while (0)
 
 /**
@@ -190,6 +187,12 @@ uk_store_init_entry(struct uk_store_entry *entry)
 	memset(entry, 0, sizeof(*entry));
 	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
 	UK_TREE_NODE_INIT(&entry->node);
+
+	if (unlikely(init_list)) {
+		init_list = 0;
+		for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i)
+			UK_INIT_LIST_HEAD(&refcount[i]);
+	}
 }
 
 /**
@@ -209,7 +212,7 @@ uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
 }
 
 /**
- * Deletes an entry and its cache entries
+ * Deletes an entry and its children (does not free the name of the children)
  *
  * @param entry the entry to delete
  * @return 0 on success or < 0 on fail
@@ -221,15 +224,9 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 		return -EINVAL;
 
 	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
-
-	if (entry->entry_name)
+	if (entry->entry_name) {
 		free(entry->entry_name);
-
-	for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i) {
-		if (refcount[i].entry == entry) {
-			refcount[i].entry = NULL;
-			refcount[i].path = NULL;
-		}
+		entry->entry_name = NULL;
 	}
 
 	return uk_tree_del(&entry->node, (parent ? &parent->node : NULL));
@@ -238,41 +235,32 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
 /* Taken from https://xorshift.di.unimi.it/splitmix64.c */
 static inline uint64_t
 uk_store_cache_hash(uint64_t x) {
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-    return (x ^ (x >> 31)) % UK_STORE_REFCOUNT_MAX_SIZE;
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+	return (x ^ (x >> 31)) % UK_STORE_REFCOUNT_MAX_SIZE;
 }
 
 /**
  * Searches for an association in the cache
  *
  * @param path the path to check for
- * @return the position occupied or < 0 if error
+ * @return the association or NULL on error
  */
-static inline int
-uk_store_cache_pos(const char *path)
+static inline struct uk_store_refcount *
+uk_store_cache_find(const char *path)
 {
-	int to_find = uk_store_cache_hash((uintptr_t)path);
-	int iter = to_find;
+	int bucket = uk_store_cache_hash((uintptr_t)path);
+	struct uk_store_refcount *to_ret;
 
 	if (unlikely(!path))
-		return -EINVAL;
+		return NULL;
 
-	while (iter != UK_STORE_REFCOUNT_MAX_SIZE) {
-		if (refcount[iter].path == path)
-			return iter;
-		iter++;
+	uk_list_for_each_entry(to_ret, &refcount[bucket], head) {
+		if (to_ret->path == path)
+			return to_ret;
 	}
 
-	iter = 0;
-
-	while (iter != to_find) {
-		if (refcount[iter].path == path)
-			return iter;
-		iter++;
-	}
-
-	return -1;
+	return NULL;
 }
 
 /**
@@ -286,65 +274,52 @@ static inline int
 uk_store_cache_entry(struct uk_store_entry *entry, const char *path)
 {
 	int to_store = uk_store_cache_hash((uintptr_t)path);
-	int iter = to_store;
+	struct uk_store_refcount *assoc;
 
 	if (unlikely(!path))
 		return -EINVAL;
 
-	while (iter != UK_STORE_REFCOUNT_MAX_SIZE) {
-		if (!refcount[iter].path) {
-			refcount[iter].path = path;
-			refcount[iter].entry = entry;
-			return iter;
-		}
-		iter++;
-	}
+	assoc = calloc(1, sizeof(*assoc));
+	if (!assoc)
+		return -ENOMEM;
 
-	iter = 0;
+	assoc->entry = entry;
+	assoc->path = path;
 
-	while (iter != to_store) {
-		if (!refcount[iter].path) {
-			refcount[iter].path = path;
-			refcount[iter].entry = entry;
-			return iter;
-		}
-		iter++;
-	}
+	uk_list_add_tail(&assoc->head, &refcount[to_store]);
 
-	return -ENOMEM;
+	return 0;
 }
 
 /**
  * Clears a path-entry association
  *
  * @param path the path to check for
- * @return the position released or < 0 if error
  */
-static inline int
+static inline void
 uk_store_cache_release_path(const char *path)
 {
-	int to_release = uk_store_cache_pos(path);
+	struct uk_store_refcount *to_release = uk_store_cache_find(path);
 
-	if (to_release >= 0) {
-		refcount[to_release].entry = NULL;
-		refcount[to_release].path = NULL;
+	if (to_release != NULL) {
+		uk_list_del(&to_release->head);
+		free(to_release);
 	}
-
-	return to_release;
 }
 
 /**
- * Clears all cached path-entry associations
+ * Flush the cache 
  *
- * @param entry the entry to clear
  */
 static inline void
-uk_store_cache_release_entry(struct uk_store_entry *entry)
+uk_store_cache_release_all()
 {
+	struct uk_store_refcount *p, *n;
+
 	for (int i = 0; i < UK_STORE_REFCOUNT_MAX_SIZE; ++i) {
-		if (refcount[i].entry == entry) {
-			refcount[i].entry = NULL;
-			refcount[i].path = NULL;
+		uk_list_for_each_entry_safe(p, n, &refcount[i], head) {
+			uk_list_del(&p->head);
+			free(p);
 		}
 	}
 }
@@ -358,9 +333,9 @@ uk_store_cache_release_entry(struct uk_store_entry *entry)
 static inline struct uk_store_entry *
 uk_store_get_entry_by_cache(const char *path)
 {
-	int to_ret = uk_store_cache_pos(path);
+	struct uk_store_refcount *to_ret = uk_store_cache_find(path);
 
-	return (to_ret >= 0) ? refcount[to_ret].entry : NULL;
+	return to_ret ? to_ret->entry : NULL;
 }
 
 /**
