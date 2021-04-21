@@ -82,7 +82,6 @@ typedef void (*uk_store_set_uptr_func_t)(__uptr);
 
 /* Stores functions and their types and a node connection to the tree */
 struct uk_store_entry {
-	enum uk_store_entry_type get_type, set_type;
 	union {
 		uk_store_get_s8_func_t   s8;
 		uk_store_get_u8_func_t   u8;
@@ -105,10 +104,22 @@ struct uk_store_entry {
 		uk_store_set_u64_func_t  u64;
 		uk_store_set_uptr_func_t uptr;
 	} set;
-	char *entry_name;
-	int64_t refcount;
-	struct uk_tree_node node;
+	const char *entry_name;
+	enum uk_store_entry_type type;
+	// struct uk_tree_node node;
+}; // TODO look up align macro essentials.h
+
+struct uk_store_folder {
+	uk_list_head head;
 };
+
+struct uk_store_folder_entry {
+	struct uk_store_entry;
+	uk_list_head head;
+	int32_t refcount; // use __atomic
+};
+// list of folders
+// folder with list of entries
 
 /* Section array start point */
 extern struct uk_store_entry *uk_store_libs;
@@ -127,9 +138,23 @@ extern struct uk_store_entry *uk_store_libs;
  *
  * @param entry the entry in the section
  */
-#define __UK_STORE_ENTRY_REG(entry)					\
+#define __UK_STORE_ENTRY_REG(entry, todo_later)				\
 	__attribute((__section__(".uk_store_libs_list")))		\
-	static struct uk_store_entry *__ptr_##entry __used = &entry
+	static struct uk_store_entry __ptr_##entry __used = {
+		.todo_later
+	};
+// do init here
+// not a pointer
+
+// dynamic
+#define uk_store_entry_init(entry, macro_name, macro_type, getter, setter)	\
+	do {							\
+		entry->entry_name = macro_name;			\
+		entry->type = macro_type;			\
+		entry->get.macro_type = getter;			\
+		entry->set.macro_type = setter;			\
+	} while(0)
+
 
 /**
  * Registers an entry in the section and initializes the tree structure.
@@ -273,44 +298,6 @@ uk_store_release_entry(struct uk_store_entry **entry)
 	}
 }
 
-/**
- * Checks if an entry is a file (leaf)
- *
- * @param entry the entry to check
- * @return 1 if file, 0 if not, or < 0 on fail
- */
-static inline int
-uk_store_is_file(struct uk_store_entry *entry)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	return uk_tree_is_leaf(&entry->node);
-}
-
-/**
- * Updates the name of an entry
- *
- * @param entry the entry where to update the name
- * @param name the new name
- * @return 0 on success or < 0 on fail
- */
-static inline int
-uk_store_update_name(struct uk_store_entry *entry, const char *name)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	if (entry->entry_name)
-		free(entry->entry_name);
-
-	entry->entry_name = strdup(name);
-
-	if (!entry->entry_name)
-		return -ENOMEM;
-
-	return 0;
-}
 
 /**
  * Saves a new getter function in the entry
@@ -508,7 +495,7 @@ uk_store_set_value(struct uk_store_entry *entry, void *in)
 	switch (entry->set_type) {
 	case UK_STORE_ENT_INT:
 	case UK_STORE_ENT_S32:
-		entry->set.s32(*((__s32 *) in));
+		entry->set.__s32(*((__s32 *) in));
 		break;
 
 	case UK_STORE_ENT_S16:

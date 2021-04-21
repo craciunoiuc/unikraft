@@ -6,3 +6,7 @@ SECTIONS
 	}
 }
 INSERT AFTER .text;
+
+/* 1 memory holder for the dynamic lists for the tree lists */
+
+/* another one for the starting address for the static entries + end address */
