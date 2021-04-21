@@ -33,28 +33,44 @@
 #ifndef __STORE_INTERNAL_H__
 #define __STORE_INTERNAL_H__
 
-#include <uk/store/tree.h>
+#include <uk/essentials.h>
 #include <uk/list.h>
 
 // TODO Reduce implementation to bare minimum
-// TODO Move this to `include/store.h`?
 // TODO Tidy up
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* All types used by the structure */
 enum uk_store_entry_type {
-	UK_STORE_ENT_NONE,
-	UK_STORE_ENT_S8,
-	UK_STORE_ENT_U8,
-	UK_STORE_ENT_S16,
-	UK_STORE_ENT_U16,
-	UK_STORE_ENT_S32,
-	UK_STORE_ENT_U32,
-	UK_STORE_ENT_S64,
-	UK_STORE_ENT_U64,
-	UK_STORE_ENT_UPTR,
-	UK_STORE_ENT_INT,
-	UK_STORE_ENT_CHAR,
-	UK_STORE_ENT_CHARP,
+	UK_STORE_ENT_NONE  = 0,
+	UK_STORE_ENT_S8    = 1,
+	UK_STORE_ENT_U8    = 2,
+	UK_STORE_ENT_S16   = 3,
+	UK_STORE_ENT_U16   = 4,
+	UK_STORE_ENT_S32   = 5,
+	UK_STORE_ENT_U32   = 6,
+	UK_STORE_ENT_S64   = 7,
+	UK_STORE_ENT_U64   = 8,
+	UK_STORE_ENT_UPTR  = 9,
+	UK_STORE_ENT_INT   = 5,
+	UK_STORE_ENT_CHAR  = 1,
+	UK_STORE_ENT_CHARP = 9
+};
+
+enum uk_store_entry_basic_type {
+	none = 0,
+	s8   = 1,
+	u8   = 2,
+	s16  = 3,
+	u16  = 4,
+	s32  = 5,
+	u32  = 6,
+	s64  = 7,
+	u64  = 8,
+	uptr = 9,
 };
 
 /* Getter definitions */
@@ -106,85 +122,88 @@ struct uk_store_entry {
 	} set;
 	const char *entry_name;
 	enum uk_store_entry_type type;
-	// struct uk_tree_node node;
-}; // TODO look up align macro essentials.h
+} __align8;
 
 struct uk_store_folder {
-	uk_list_head head;
+	// struct uk_list_head head;
+	struct uk_list_head folder_head;
 };
 
 struct uk_store_folder_entry {
-	struct uk_store_entry;
-	uk_list_head head;
-	int32_t refcount; // use __atomic
+	struct uk_store_entry entry;
+	struct uk_list_head list_head;
+	__atomic refcount;
 };
-// list of folders
-// folder with list of entries
 
-/* Section array start point */
-extern struct uk_store_entry *uk_store_libs;
+/*
+uk_store_folder -> uk_store_folder -> uk_store_folder (static)
+      |
+      V
+uk_store_folder_entry
+      |
+      V
+uk_store_folder_entry
 
-/**
- * Must be used to define all entries registered in the section.
- * This is used to ensure that there are no overlaps in memory.
- *
- * @param name the entry name
- */
-#define UK_STORE_DEFINE_ENTRY(name)	\
-	static struct uk_store_entry _uk_store_section_head_##name __unused
+[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] static
+[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] dynamic
+
+-------------------------------------------------------------------------------
+
+uk_alloc -> uk_sched -> uk_netdev
+    |
+    V
+"total_mem"
+    |
+    V
+"1/alloc_mem"
+    |
+    V
+"2/alloc_mem"
+
+*/
+
+/* Static entry array start+end points */
+extern struct uk_store_entry *uk_store_entries_start;
+extern struct uk_store_entry *uk_store_entries_end;
+
+/* Static folders array start+end points */
+extern struct uk_store_folder *uk_store_libs_start;
+extern struct uk_store_folder *uk_store_libs_end;
+
+#define UK_STORE_INITREG_FOLDER(fldr)				\
+	static struct uk_store_folder 				\
+	__used __section(".uk_store_libs_list") __align8	\
+	__uk_store_folder_list ## _ ## fldr  = {		\
+		.folder_head = UK_LIST_HEAD_INIT(				\
+			__uk_store_folder_list ## _ ## fldr.folder_head)	\
+	}
 
 /**
  * Adds an entry to the section. Not to be called directly.
  *
  * @param entry the entry in the section
  */
-#define __UK_STORE_ENTRY_REG(entry, todo_later)				\
-	__attribute((__section__(".uk_store_libs_list")))		\
-	static struct uk_store_entry __ptr_##entry __used = {
-		.todo_later
-	};
-// do init here
-// not a pointer
+#define _UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_getter, e_setter)	\
+	static const struct uk_store_entry 			\
+	__used __section(".uk_store_entries_list") __align8	\
+	__uk_store_entries_list ## _ ## entry  = {		\
+		.entry_name = (e_name),				\
+		.type       = (e_type),				\
+		.get.e_type = (e_getter),			\
+		.set.e_type = (e_setter)			\
+	}
 
-// dynamic
-#define uk_store_entry_init(entry, macro_name, macro_type, getter, setter)	\
-	do {							\
-		entry->entry_name = macro_name;			\
-		entry->type = macro_type;			\
-		entry->get.macro_type = getter;			\
-		entry->set.macro_type = setter;			\
-	} while(0)
+#define UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_getter, e_setter)	\
+	_UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_getter, e_setter)
 
-
-/**
- * Registers an entry in the section and initializes the tree structure.
- *
- * @param offset the offset where to register
- * @param name the name of the entry to save (char *)
- * @param entry the entry to register space for
- */
-#define UK_STORE_STATIC_REGISTER_INIT(offset, name, entry)		\
+#define uk_store_entry_init(entry, e_name, e_type, getter, setter)	\
 	do {								\
-		struct uk_store_entry *to_reg =				\
-			(uk_store_libs + (offset));			\
-		to_reg->get_type = to_reg->set_type = UK_STORE_ENT_NONE;\
-		to_reg->entry_name = strdup(name);			\
-		to_reg->refcount = 0;					\
-		UK_TREE_NODE_INIT(&to_reg->node);			\
-		__UK_STORE_ENTRY_REG(_uk_store_section_head_##entry);	\
+		(entry)->entry_name = (e_name);				\
+		(entry)->type = (e_type);				\
+		(entry)->get.e_type = getter;				\
+		(entry)->set.e_type = setter;				\
 	} while (0)
 
-/**
- * Initializes an empty entry.
- *
- * @param entry the entry to initialize
- */
-static inline void
-uk_store_init_entry(struct uk_store_entry *entry)
-{
-	memset(entry, 0, sizeof(*entry));
-	UK_TREE_NODE_INIT(&entry->node);
-}
 
 /**
  * Adds an entry to the `place`'s `next` pointers
@@ -193,14 +212,7 @@ uk_store_init_entry(struct uk_store_entry *entry)
  * @param entry the entry to add
  * @return 0 on success or < 0 on fail
  */
-static inline int
-uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
-{
-	if (unlikely(!place || !entry))
-		return -EINVAL;
-
-	return uk_tree_add(&place->node, &entry->node);
-}
+// TODO Add entry to list
 
 /**
  * Deletes an entry and its children (does not free the name of the children)
@@ -208,20 +220,7 @@ uk_store_add_entry(struct uk_store_entry *place, struct uk_store_entry *entry)
  * @param entry the entry to delete
  * @return 0 on success or < 0 on fail
  */
-static inline int
-uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	entry->get_type = entry->set_type = UK_STORE_ENT_NONE;
-	if (entry->entry_name) {
-		free(entry->entry_name);
-		entry->entry_name = NULL;
-	}
-
-	return uk_tree_del(&entry->node, (parent ? &parent->node : NULL));
-}
+// TODO Delete entry from list
 
 
 /**
@@ -231,34 +230,7 @@ uk_store_del_entry(struct uk_store_entry *entry, struct uk_store_entry *parent)
  * @param path the path to follow
  * @return the entry or NULL if not found
  */
-static inline struct uk_store_entry *
-uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
-{
-	struct uk_store_entry *entry = NULL;
-	const char *slash;
-
-	if (*path == '\0')
-		return root;
-
-	slash = strchr(path, '/');
-	if (slash == NULL)
-		slash = strchr(path, '\0');
-
-	for (uint16_t idx = 0; idx < root->node.next_nodes_nr; ++idx) {
-		if (!root->node.next[idx])
-			continue;
-
-		entry = uk_tree_entry(root->node.next[idx],
-					struct uk_store_entry, node);
-
-		if (!strncmp(entry->entry_name, path, slash - path)) {
-			return uk_store_get_entry_by_path(entry,
-					slash + !!(*slash));
-		}
-	}
-
-	return NULL;
-}
+// TODO Find entry
 
 /**
  * Returns a saved entry
@@ -267,16 +239,7 @@ uk_store_get_entry_by_path(struct uk_store_entry *root, const char *path)
  * @param path the path to follow
  * @return the found entry or NULL
  */
-static inline struct uk_store_entry *
-uk_store_get_entry(struct uk_store_entry *root, const char *path)
-{
-	struct uk_store_entry *ret = uk_store_get_entry_by_path(root, path);
-
-	if (ret)
-		ret->refcount++;
-
-	return ret;
-}
+// TODO Get Entry
 
 /**
  * Returns a saved entry
@@ -285,18 +248,7 @@ uk_store_get_entry(struct uk_store_entry *root, const char *path)
  * @param path the path to follow
  * @return the found entry or NULL
  */
-static inline void
-uk_store_release_entry(struct uk_store_entry **entry)
-{
-	if (unlikely(!entry))
-		return;
-
-	(*entry)->refcount--;
-	if((*entry)->refcount <= 0) {
-		(*entry)->refcount = 0;
-		*entry = NULL;
-	}
-}
+// TODO Release Entry
 
 
 /**
@@ -307,58 +259,15 @@ uk_store_release_entry(struct uk_store_entry **entry)
  * @param func the function
  * @return 0 on success or < 0 on fail
  */
-static inline int
-uk_store_update_getter(struct uk_store_entry *entry,
-			enum uk_store_entry_type type, void *func)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	entry->get_type = type;
-	switch (entry->get_type) {
-	case UK_STORE_ENT_INT:
-	case UK_STORE_ENT_S32:
-		entry->get.s32 = func;
-		break;
-
-	case UK_STORE_ENT_S16:
-		entry->get.s16 = func;
-		break;
-
-	case UK_STORE_ENT_CHAR:
-	case UK_STORE_ENT_S8:
-		entry->get.s8 = func;
-		break;
-
-	case UK_STORE_ENT_S64:
-		entry->get.s64 = func;
-		break;
-
-	case UK_STORE_ENT_U32:
-		entry->get.u32 = func;
-		break;
-
-	case UK_STORE_ENT_U16:
-		entry->get.u16 = func;
-		break;
-
-	case UK_STORE_ENT_U8:
-		entry->get.u8 = func;
-		break;
-
-	case UK_STORE_ENT_U64:
-		entry->get.u64 = func;
-		break;
-
-	case UK_STORE_ENT_UPTR:
-	case UK_STORE_ENT_CHARP:
-		entry->get.uptr = func;
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
+#define uk_store_update_getter(entry, e_type, func)	\
+	do {						\
+		if (unlikely(!(entry) || !(e_type)))	\
+			break;				\
+		if ((entry)->type != (__u8)(e_type))	\
+			(entry)->set.e_type = NULL;	\
+		(entry)->type = (e_type);		\
+		(entry)->get.e_type = func;		\
+	} while (0)
 
 /**
  * Saves a new setter function in the entry
@@ -368,58 +277,15 @@ uk_store_update_getter(struct uk_store_entry *entry,
  * @param func the function
  * @return 0 on success or < 0 on fail
  */
-static inline int
-uk_store_update_setter(struct uk_store_entry *entry,
-			enum uk_store_entry_type type, void *func)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	entry->set_type = type;
-	switch (entry->set_type) {
-	case UK_STORE_ENT_INT:
-	case UK_STORE_ENT_S32:
-		entry->set.s32 = func;
-		break;
-
-	case UK_STORE_ENT_S16:
-		entry->set.s16 = func;
-		break;
-
-	case UK_STORE_ENT_CHAR:
-	case UK_STORE_ENT_S8:
-		entry->set.s8 = func;
-		break;
-
-	case UK_STORE_ENT_S64:
-		entry->set.s64 = func;
-		break;
-
-	case UK_STORE_ENT_U32:
-		entry->set.u32 = func;
-		break;
-
-	case UK_STORE_ENT_U16:
-		entry->set.u16 = func;
-		break;
-
-	case UK_STORE_ENT_U8:
-		entry->set.u8 = func;
-		break;
-
-	case UK_STORE_ENT_U64:
-		entry->set.u64 = func;
-		break;
-
-	case UK_STORE_ENT_UPTR:
-	case UK_STORE_ENT_CHARP:
-		entry->set.uptr = func;
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
+#define uk_store_update_setter(entry, e_type, func)	\
+	do {						\
+		if (unlikely(!(entry) || !(e_type)))	\
+			break;				\
+		if ((entry)->type != (__u8)(e_type))	\
+			(entry)->get.e_type = NULL;	\
+		(entry)->type = (e_type);		\
+		(entry)->set.e_type = func;		\
+	} while (0)
 
 /**
  * Gets the value returned by the saved function and puts it in `out`
@@ -428,56 +294,12 @@ uk_store_update_setter(struct uk_store_entry *entry,
  * @param out the place where to store the result
  * @return 0 on success or < 0 on fail
  */
-static inline int
-uk_store_get_value(struct uk_store_entry *entry, void *out)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
-
-	switch (entry->get_type) {
-	case UK_STORE_ENT_INT:
-	case UK_STORE_ENT_S32:
-		*((__s32 *) out) = entry->get.s32();
-		break;
-
-	case UK_STORE_ENT_S16:
-		*((__s16 *) out) = entry->get.s16();
-		break;
-
-	case UK_STORE_ENT_CHAR:
-	case UK_STORE_ENT_S8:
-		*((__s8 *) out) = entry->get.s8();
-		break;
-
-	case UK_STORE_ENT_S64:
-		*((__s64 *) out) = entry->get.s64();
-		break;
-
-	case UK_STORE_ENT_U32:
-		*((__u32 *) out) = entry->get.u32();
-		break;
-
-	case UK_STORE_ENT_U16:
-		*((__u16 *) out) = entry->get.u16();
-		break;
-
-	case UK_STORE_ENT_U8:
-		*((__u8 *) out) = entry->get.u8();
-		break;
-
-	case UK_STORE_ENT_U64:
-		*((__u64 *) out) = entry->get.u64();
-		break;
-
-	case UK_STORE_ENT_UPTR:
-	case UK_STORE_ENT_CHARP:
-		*((__uptr *) out) = entry->get.uptr();
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
+#define uk_store_get_value(entry, e_type, out)				\
+	do {								\
+		if (unlikely(!(entry) || !(e_type)))			\
+			break;						\
+		*((__##e_type *) (out)) = (entry)->get.e_type();	\
+	} while (0)
 
 /**
  * Sets the value from `in` with the saved function
@@ -486,55 +308,15 @@ uk_store_get_value(struct uk_store_entry *entry, void *out)
  * @param in the value to give to the setter
  * @return 0 on success or < 0 on fail
  */
-static inline int
-uk_store_set_value(struct uk_store_entry *entry, void *in)
-{
-	if (unlikely(!entry))
-		return -EINVAL;
+#define uk_store_set_value(entry, e_type, in)				\
+	do {								\
+		if (unlikely(!(entry) || !(e_type)))			\
+			break;						\
+		(entry)->set.e_type(*((__##e_type *) (in)));		\
+	} while (0)
 
-	switch (entry->set_type) {
-	case UK_STORE_ENT_INT:
-	case UK_STORE_ENT_S32:
-		entry->set.__s32(*((__s32 *) in));
-		break;
-
-	case UK_STORE_ENT_S16:
-		entry->set.s16(*((__s16 *) in));
-		break;
-
-	case UK_STORE_ENT_CHAR:
-	case UK_STORE_ENT_S8:
-		entry->set.s8(*((__s8 *) in));
-		break;
-
-	case UK_STORE_ENT_S64:
-		entry->set.s64(*((__s64 *) in));
-		break;
-
-	case UK_STORE_ENT_U32:
-		entry->set.u32(*((__u32 *) in));
-		break;
-
-	case UK_STORE_ENT_U16:
-		entry->set.u16(*((__u16 *) in));
-		break;
-
-	case UK_STORE_ENT_U8:
-		entry->set.u8(*((__u8 *) in));
-		break;
-
-	case UK_STORE_ENT_U64:
-		entry->set.u64(*((__u64 *) in));
-		break;
-
-	case UK_STORE_ENT_UPTR:
-	case UK_STORE_ENT_CHARP:
-		entry->set.uptr(*((__uptr *) in));
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
+#ifdef __cplusplus
 }
+#endif
 
 #endif /* __STORE_INTERNAL_H__ */
