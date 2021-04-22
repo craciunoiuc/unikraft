@@ -38,8 +38,6 @@
 #include <uk/list.h>
 #include <uk/arch/atomic.h>
 
-// TODO Should folders be static or dynamic? (static -> no need for a uk_list of folders)
-
 /*
 uk_store_folder -> uk_store_folder -> uk_store_folder (static)
       |
@@ -50,11 +48,11 @@ uk_store_folder_entry
 uk_store_folder_entry
 
 [uk_store_entry uk_store_entry uk_store_entry uk_store_entry] static
-[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] dynamic
+uk_store_entry | uk_store_entry | uk_store_entry | uk_store_entry dynamic
 
 -------------------------------------------------------------------------------
 
-uk_alloc -> uk_sched -> uk_netdev
+[uk_alloc uk_sched uk_netdev]
     |
     V
 "total_mem"
@@ -151,21 +149,21 @@ struct uk_store_entry {
 		uk_store_set_uptr_func_t uptr;
 	} set;
 	const char *entry_name;
-	enum uk_store_entry_type type;
 	__u16 flags;
-	__u16 extra;
+	__u16 type;
 } __align8;
 
 struct uk_store_folder {
 	// struct uk_list_head head;
 	struct uk_list_head folder_head;
-};
+} __align8;
+// TODO Should folders be static or dynamic? (static -> no need for a uk_list of folders)
 
 struct uk_store_folder_entry {
 	struct uk_store_entry *entry;
 	struct uk_list_head list_head;
 	__atomic refcount;
-};
+} __align8;
 
 #define UK_STORE_FLAG_STATIC	1
 #define UK_STORE_FLAG_DYNAMIC	2
@@ -180,6 +178,7 @@ extern struct uk_store_entry *uk_store_entries_end;
 /* Static folders array start+end points */
 extern struct uk_store_folder *uk_store_libs_start;
 extern struct uk_store_folder *uk_store_libs_end;
+// TODO How to get library indexes? I forgot :(
 
 #define UK_STORE_INITREG_FOLDER(fldr)					\
 	static struct uk_store_folder					\
@@ -203,7 +202,6 @@ extern struct uk_store_folder *uk_store_libs_end;
 		.get.e_type = (e_get),					\
 		.set.e_type = (e_set),					\
 		.flags      = UK_STORE_FLAG_STATIC,			\
-		.extra      = 0						\
 	}
 
 #define UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)	\
@@ -216,7 +214,6 @@ extern struct uk_store_folder *uk_store_libs_end;
 		(entry)->get.e_type = getter;				\
 		(entry)->set.e_type = setter;				\
 		(entry)->flags      = UK_STORE_FLAG_DYNAMIC;		\
-		(entry)->extra      = 0;				\
 	} while (0)
 
 #define uk_store_folder_entry_init(folder_entry, new_entry)		\
@@ -350,29 +347,39 @@ uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from l
  * Gets the value returned by the saved function and puts it in `out`
  *
  * @param entry the entry to use
+ * @param e_type the type of the function (basic type)
  * @param out the place where to store the result
  * @return 0 on success or < 0 on fail
  */
-#define uk_store_get_value(entry, e_type, out)				\
+// TODO Remove e_type from args? Go back to the switch?
+// standard = 0.055, inline = 0.035, macro = 0.025
+#define uk_store_get_value_macro(entry, e_type, out)			\
 	do {								\
 		if (unlikely(!(entry) || !(e_type)))			\
 			break;						\
 		*((__##e_type *) (out)) = (entry)->get.e_type();	\
 	} while (0)
 
+extern void uk_store_get_value(struct uk_store_entry *entry, void *out);
+
 /**
  * Sets the value from `in` with the saved function
  *
  * @param entry the entry to use
+ * @param e_type the type of the function (basic type)
  * @param in the value to give to the setter
  * @return 0 on success or < 0 on fail
  */
-#define uk_store_set_value(entry, e_type, in)				\
+// TODO Remove e_type from args? Go back to the switch?
+// standard = 0.055, inline = 0.035, macro = 0.025
+#define uk_store_set_value_macro(entry, e_type, in)			\
 	do {								\
 		if (unlikely(!(entry) || !(e_type)))			\
 			break;						\
 		(entry)->set.e_type(*((__##e_type *) (in)));		\
 	} while (0)
+
+extern void uk_store_set_value(struct uk_store_entry *entry, void *in);
 
 #ifdef __cplusplus
 }

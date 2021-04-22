@@ -30,4 +30,96 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <uk/store/store.h>
 
+void uk_store_set_value(struct uk_store_entry *entry, void *in)
+{
+	if (unlikely(!entry))
+		return;
+
+	switch (entry->type) {
+	case UK_STORE_ENT_S32:
+		entry->set.s32(*((__s32 *) in));
+		break;
+
+	case UK_STORE_ENT_S16:
+		entry->set.s16(*((__s16 *) in));
+		break;
+
+	case UK_STORE_ENT_S8:
+		entry->set.s8(*((__s8 *) in));
+		break;
+
+	case UK_STORE_ENT_S64:
+		entry->set.s64(*((__s64 *) in));
+		break;
+
+	case UK_STORE_ENT_U32:
+		entry->set.u32(*((__u32 *) in));
+		break;
+
+	case UK_STORE_ENT_U16:
+		entry->set.u16(*((__u16 *) in));
+		break;
+
+	case UK_STORE_ENT_U8:
+		entry->set.u8(*((__u8 *) in));
+		break;
+
+	case UK_STORE_ENT_U64:
+		entry->set.u64(*((__u64 *) in));
+		break;
+
+	case UK_STORE_ENT_UPTR:
+		entry->set.uptr(*((__uptr *) in));
+		break;
+	default:
+		break;
+	}
+}
+
+void uk_store_get_value(struct uk_store_entry *entry, void *out)
+{
+	if (unlikely(!entry))
+		return;
+
+	switch (entry->type) {
+	case UK_STORE_ENT_S32:
+		*((__s32 *) out) = entry->get.s32();
+		break;
+
+	case UK_STORE_ENT_S16:
+		*((__s16 *) out) = entry->get.s16();
+		break;
+
+	case UK_STORE_ENT_S8:
+		*((__s8 *) out) = entry->get.s8();
+		break;
+
+	case UK_STORE_ENT_S64:
+		*((__s64 *) out) = entry->get.s64();
+		break;
+
+	case UK_STORE_ENT_U32:
+		*((__u32 *) out) = entry->get.u32();
+		break;
+
+	case UK_STORE_ENT_U16:
+		*((__u16 *) out) = entry->get.u16();
+		break;
+
+	case UK_STORE_ENT_U8:
+		*((__u8 *) out) = entry->get.u8();
+		break;
+
+	case UK_STORE_ENT_U64:
+		*((__u64 *) out) = entry->get.u64();
+		break;
+
+	case UK_STORE_ENT_UPTR:
+		*((__uptr *) out) = entry->get.uptr();
+		break;
+	default:
+		break;
+	}
+}
