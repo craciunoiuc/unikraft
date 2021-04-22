@@ -156,6 +156,7 @@ struct uk_store_entry {
 struct uk_store_folder {
 	// struct uk_list_head head;
 	struct uk_list_head folder_head;
+	const char *folder_name; // TODO Keep name?
 } __align8;
 // TODO Should folders be static or dynamic? (static -> no need for a uk_list of folders)
 
@@ -185,7 +186,8 @@ extern struct uk_store_folder *uk_store_libs_end;
 	__used __section(".uk_store_libs_list") __align8		\
 	__uk_store_folder_list ## _ ## fldr  = {			\
 		.folder_head = UK_LIST_HEAD_INIT(			\
-		__uk_store_folder_list ## _ ## fldr.folder_head)	\
+		__uk_store_folder_list ## _ ## fldr.folder_head),	\
+		.folder_name = STRINGIFY(fldr)				\
 	}
 
 /**
@@ -193,19 +195,19 @@ extern struct uk_store_folder *uk_store_libs_end;
  *
  * @param entry the entry in the section
  */
-#define _UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)	\
+#define _UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)		\
 	static const struct uk_store_entry				\
 	__used __section(".uk_store_entries_list") __align8		\
 	__uk_store_entries_list ## _ ## entry  = {			\
-		.entry_name = (e_name),					\
+		.entry_name = STRINGIFY(entry),				\
 		.type       = (e_type),					\
 		.get.e_type = (e_get),					\
 		.set.e_type = (e_set),					\
 		.flags      = UK_STORE_FLAG_STATIC,			\
 	}
 
-#define UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)	\
-	_UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)
+#define UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)	\
+	_UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)
 
 #define uk_store_entry_init(entry, e_name, e_type, getter, setter)	\
 	do {								\
