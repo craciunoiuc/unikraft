@@ -162,7 +162,7 @@ struct uk_store_folder {
 };
 
 struct uk_store_folder_entry {
-	struct uk_store_entry entry;
+	struct uk_store_entry *entry;
 	struct uk_list_head list_head;
 	__atomic refcount;
 };
@@ -219,6 +219,11 @@ extern struct uk_store_folder *uk_store_libs_end;
 		(entry)->extra      = 0;				\
 	} while (0)
 
+#define uk_store_folder_entry_init(folder_entry, new_entry)		\
+	do {								\
+		(folder_entry)->entry = new_entry;			\
+		ukarch_store_n(&(folder_entry)->refcount.counter, 0);	\
+	} while (0)
 
 /**
  * Adds a folder entry to a folder
@@ -258,7 +263,7 @@ _uk_store_find_entry(struct uk_store_folder *folder, const char *name) // TODO M
 	struct uk_store_folder_entry *iter;
 
 	uk_list_for_each_entry(iter, &folder->folder_head, list_head)
-		if (!strcmp(iter->entry.entry_name, name))
+		if (!strcmp(iter->entry->entry_name, name))
 			return iter;
 
 	return NULL;
@@ -278,7 +283,7 @@ uk_store_get_entry(struct uk_store_folder *folder, const char *name)
 
 	if (res) {
 		ukarch_inc(&res->refcount.counter);
-		return &res->entry;
+		return res->entry;
 	}
 
 	return NULL;
@@ -293,7 +298,7 @@ uk_store_get_entry(struct uk_store_folder *folder, const char *name)
 static inline void
 uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from list?
 {
-	struct uk_store_folder_entry *res = uk_store_get_folder_entry(*entry);
+	struct uk_store_folder_entry *res = uk_store_get_folder_entry(entry);
 
 	ukarch_dec(&res->refcount.counter);
 	/*
