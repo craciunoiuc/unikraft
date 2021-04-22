@@ -34,17 +34,46 @@
 #define __STORE_INTERNAL_H__
 
 #include <uk/essentials.h>
+#include <string.h>
 #include <uk/list.h>
+#include <uk/arch/atomic.h>
 
-// TODO Reduce implementation to bare minimum
-// TODO Tidy up
+// TODO Should folders be static or dynamic? (static -> no need for a uk_list of folders)
+
+/*
+uk_store_folder -> uk_store_folder -> uk_store_folder (static)
+      |
+      V
+uk_store_folder_entry
+      |
+      V
+uk_store_folder_entry
+
+[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] static
+[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] dynamic
+
+-------------------------------------------------------------------------------
+
+uk_alloc -> uk_sched -> uk_netdev
+    |
+    V
+"total_mem"
+    |
+    V
+"1/alloc_mem"
+    |
+    V
+"2/alloc_mem"
+
+*/
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* All types used by the structure */
-enum uk_store_entry_type {
+enum uk_store_entry_type { // TODO Give up these types?
 	UK_STORE_ENT_NONE  = 0,
 	UK_STORE_ENT_S8    = 1,
 	UK_STORE_ENT_U8    = 2,
@@ -60,6 +89,7 @@ enum uk_store_entry_type {
 	UK_STORE_ENT_CHARP = 9
 };
 
+/* All basic types that exist */
 enum uk_store_entry_basic_type {
 	none = 0,
 	s8   = 1,
@@ -122,6 +152,8 @@ struct uk_store_entry {
 	} set;
 	const char *entry_name;
 	enum uk_store_entry_type type;
+	__u16 flags;
+	__u16 extra;
 } __align8;
 
 struct uk_store_folder {
@@ -135,32 +167,11 @@ struct uk_store_folder_entry {
 	__atomic refcount;
 };
 
-/*
-uk_store_folder -> uk_store_folder -> uk_store_folder (static)
-      |
-      V
-uk_store_folder_entry
-      |
-      V
-uk_store_folder_entry
+#define UK_STORE_FLAG_STATIC	1
+#define UK_STORE_FLAG_DYNAMIC	2
 
-[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] static
-[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] dynamic
-
--------------------------------------------------------------------------------
-
-uk_alloc -> uk_sched -> uk_netdev
-    |
-    V
-"total_mem"
-    |
-    V
-"1/alloc_mem"
-    |
-    V
-"2/alloc_mem"
-
-*/
+#define	uk_store_get_folder_entry(ptr)	\
+	__containerof(ptr, struct uk_store_folder_entry, entry)
 
 /* Static entry array start+end points */
 extern struct uk_store_entry *uk_store_entries_start;
@@ -170,12 +181,12 @@ extern struct uk_store_entry *uk_store_entries_end;
 extern struct uk_store_folder *uk_store_libs_start;
 extern struct uk_store_folder *uk_store_libs_end;
 
-#define UK_STORE_INITREG_FOLDER(fldr)				\
-	static struct uk_store_folder 				\
-	__used __section(".uk_store_libs_list") __align8	\
-	__uk_store_folder_list ## _ ## fldr  = {		\
-		.folder_head = UK_LIST_HEAD_INIT(				\
-			__uk_store_folder_list ## _ ## fldr.folder_head)	\
+#define UK_STORE_INITREG_FOLDER(fldr)					\
+	static struct uk_store_folder					\
+	__used __section(".uk_store_libs_list") __align8		\
+	__uk_store_folder_list ## _ ## fldr  = {			\
+		.folder_head = UK_LIST_HEAD_INIT(			\
+		__uk_store_folder_list ## _ ## fldr.folder_head)	\
 	}
 
 /**
@@ -183,79 +194,122 @@ extern struct uk_store_folder *uk_store_libs_end;
  *
  * @param entry the entry in the section
  */
-#define _UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_getter, e_setter)	\
-	static const struct uk_store_entry 			\
-	__used __section(".uk_store_entries_list") __align8	\
-	__uk_store_entries_list ## _ ## entry  = {		\
-		.entry_name = (e_name),				\
-		.type       = (e_type),				\
-		.get.e_type = (e_getter),			\
-		.set.e_type = (e_setter)			\
+#define _UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)	\
+	static const struct uk_store_entry				\
+	__used __section(".uk_store_entries_list") __align8		\
+	__uk_store_entries_list ## _ ## entry  = {			\
+		.entry_name = (e_name),					\
+		.type       = (e_type),					\
+		.get.e_type = (e_get),					\
+		.set.e_type = (e_set),					\
+		.flags      = UK_STORE_FLAG_STATIC,			\
+		.extra      = 0						\
 	}
 
-#define UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_getter, e_setter)	\
-	_UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_getter, e_setter)
+#define UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)	\
+	_UK_STORE_INITREG_ENTRY(entry, e_name, e_type, e_get, e_set)
 
 #define uk_store_entry_init(entry, e_name, e_type, getter, setter)	\
 	do {								\
 		(entry)->entry_name = (e_name);				\
-		(entry)->type = (e_type);				\
+		(entry)->type       = (e_type);				\
 		(entry)->get.e_type = getter;				\
 		(entry)->set.e_type = setter;				\
+		(entry)->flags      = UK_STORE_FLAG_DYNAMIC;		\
+		(entry)->extra      = 0;				\
 	} while (0)
 
 
 /**
- * Adds an entry to the `place`'s `next` pointers
+ * Adds a folder entry to a folder
  *
- * @param place the place where to add the new entry
- * @param entry the entry to add
- * @return 0 on success or < 0 on fail
+ * @param folder the place where to add the new entry
+ * @param folder_entry the entry to add
  */
-// TODO Add entry to list
+static inline void
+uk_store_add_folder_entry(struct uk_store_folder *folder,
+			struct uk_store_folder_entry *folder_entry)
+{
+	uk_list_add(&folder_entry->list_head, &folder->folder_head);
+}
 
 /**
- * Deletes an entry and its children (does not free the name of the children)
+ * Removes a folder entry from a folder
  *
- * @param entry the entry to delete
- * @return 0 on success or < 0 on fail
+ * @param folder_entry the entry to delete
  */
-// TODO Delete entry from list
+static inline void
+uk_store_del_folder_entry(struct uk_store_folder_entry *folder_entry)
+{
+	uk_list_del(&folder_entry->list_head);
+}
 
 
 /**
- * Returns an entry after following the given path
+ * Searches for a name in a folder
  *
- * @param root the node where to start the search
- * @param path the path to follow
+ * @param folder the folder to search in
+ * @param name the name to search for
  * @return the entry or NULL if not found
  */
-// TODO Find entry
+static inline struct uk_store_folder_entry *
+_uk_store_find_entry(struct uk_store_folder *folder, const char *name) // TODO Move to .c?
+{
+	struct uk_store_folder_entry *iter;
+
+	uk_list_for_each_entry(iter, &folder->folder_head, list_head)
+		if (!strcmp(iter->entry.entry_name, name))
+			return iter;
+
+	return NULL;
+}
 
 /**
- * Returns a saved entry
+ * Searches for an entry in a folder and returns it
  *
  * @param entry the entry where to start the search
  * @param path the path to follow
  * @return the found entry or NULL
  */
-// TODO Get Entry
+static inline struct uk_store_entry *
+uk_store_get_entry(struct uk_store_folder *folder, const char *name)
+{
+	struct uk_store_folder_entry *res = _uk_store_find_entry(folder, name);
+
+	if (res) {
+		ukarch_inc(&res->refcount.counter);
+		return &res->entry;
+	}
+
+	return NULL;
+}
 
 /**
  * Returns a saved entry
  *
  * @param entry the entry where to start the search
- * @param path the path to follow
  * @return the found entry or NULL
  */
-// TODO Release Entry
+static inline void
+uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from list?
+{
+	struct uk_store_folder_entry *res = uk_store_get_folder_entry(*entry);
+
+	ukarch_dec(&res->refcount.counter);
+	/*
+	if(ukarch_load(res->refcount) <= 0) {
+		uk_store_del_folder_entry(res);
+	}
+	*/
+	*entry = NULL;
+}
 
 
 /**
  * Saves a new getter function in the entry
  *
  * @param entry the place where to store the function
- * @param type the new type of the function
+ * @param e_type the new type of the function
  * @param func the function
  * @return 0 on success or < 0 on fail
  */
