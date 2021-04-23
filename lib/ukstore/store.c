@@ -31,11 +31,18 @@
  */
 
 #include <uk/store/store.h>
+#include <errno.h>
 
-void uk_store_set_value(struct uk_store_entry *entry, void *in)
+/**
+ * Calls the saved setter with the value in `in`
+ *
+ * @param entry the entry to call from
+ * @param in the value to give to the setter
+ */
+int uk_store_set_value(struct uk_store_entry *entry, void *in)
 {
 	if (unlikely(!entry))
-		return;
+		return -EINVAL;
 
 	switch (entry->type) {
 	case UK_STORE_ENT_S32:
@@ -74,14 +81,21 @@ void uk_store_set_value(struct uk_store_entry *entry, void *in)
 		entry->set.uptr(*((__uptr *) in));
 		break;
 	default:
-		break;
+		return -EINVAL;
 	}
+	return 0;
 }
 
-void uk_store_get_value(struct uk_store_entry *entry, void *out)
+/**
+ * Calls the saved getter and saves the returned value in out
+ *
+ * @param entry the entry to call from
+ * @param out the value to return
+ */
+int uk_store_get_value(struct uk_store_entry *entry, void *out)
 {
 	if (unlikely(!entry))
-		return;
+		return -EINVAL;
 
 	switch (entry->type) {
 	case UK_STORE_ENT_S32:
@@ -120,6 +134,7 @@ void uk_store_get_value(struct uk_store_entry *entry, void *out)
 		*((__uptr *) out) = entry->get.uptr();
 		break;
 	default:
-		break;
+		return -EINVAL;
 	}
+	return 0;
 }

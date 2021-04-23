@@ -169,8 +169,13 @@ struct uk_store_folder_entry {
 #define UK_STORE_FLAG_STATIC	1
 #define UK_STORE_FLAG_DYNAMIC	2
 
-#define	uk_store_get_folder_entry(ptr)	\
-	__containerof(ptr, struct uk_store_folder_entry, entry)
+/**
+ * Retuns the folder_entry of an entry
+ *
+ * @param entry_ptr the entry
+ */
+#define	uk_store_get_folder_entry(entry_ptr)	\
+	__containerof(entry_ptr, struct uk_store_folder_entry, entry)
 
 /* Static entry array start+end points */
 extern struct uk_store_entry *uk_store_entries_start;
@@ -181,6 +186,11 @@ extern struct uk_store_folder *uk_store_libs_start;
 extern struct uk_store_folder *uk_store_libs_end;
 // TODO How to get library indexes? I forgot :(
 
+/**
+ * Adds a folder to the folder section.
+ *
+ * @param fldr the folder to add
+ */
 #define UK_STORE_INITREG_FOLDER(fldr)					\
 	static struct uk_store_folder					\
 	__used __section(".uk_store_libs_list") __align8		\
@@ -190,11 +200,6 @@ extern struct uk_store_folder *uk_store_libs_end;
 		.folder_name = STRINGIFY(fldr)				\
 	}
 
-/**
- * Adds an entry to the section. Not to be called directly.
- *
- * @param entry the entry in the section
- */
 #define _UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)		\
 	static const struct uk_store_entry				\
 	__used __section(".uk_store_entries_list") __align8		\
@@ -206,9 +211,26 @@ extern struct uk_store_folder *uk_store_libs_end;
 		.flags      = UK_STORE_FLAG_STATIC,			\
 	}
 
+/**
+ * Adds an entry to the entry section.
+ *
+ * @param entry the entry in the section
+ * @param e_type the type of the function
+ * @param e_get getter pointer
+ * @param e_set setter pointer
+ */
 #define UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)	\
 	_UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)
 
+/**
+ * Initializes an entry
+ *
+ * @param entry the entry to initialize
+ * @param e_name the name of the entry
+ * @param e_type the type of the entry
+ * @param getter getter pointer
+ * @param setter setter pointer
+ */
 #define uk_store_entry_init(entry, e_name, e_type, getter, setter)	\
 	do {								\
 		(entry)->entry_name = (e_name);				\
@@ -218,6 +240,12 @@ extern struct uk_store_folder *uk_store_libs_end;
 		(entry)->flags      = UK_STORE_FLAG_DYNAMIC;		\
 	} while (0)
 
+/**
+ * Initializes a uk_store_folder_entry
+ *
+ * @param folder_entry the folder_entry to init
+ * @param new_entry the new entry to save
+ */
 #define uk_store_folder_entry_init(folder_entry, new_entry)		\
 	do {								\
 		(folder_entry)->entry = new_entry;			\
@@ -250,7 +278,7 @@ uk_store_del_folder_entry(struct uk_store_folder_entry *folder_entry)
 
 
 /**
- * Searches for a name in a folder
+ * Searches for an entry name in a folder
  *
  * @param folder the folder to search in
  * @param name the name to search for
@@ -269,10 +297,10 @@ _uk_store_find_entry(struct uk_store_folder *folder, const char *name) // TODO M
 }
 
 /**
- * Searches for an entry in a folder and returns it
+ * Searches for an entry in a folder and returns it. Increases the refcount.
  *
- * @param entry the entry where to start the search
- * @param path the path to follow
+ * @param folder the folder to search in
+ * @param name the name of the entry to search for
  * @return the found entry or NULL
  */
 static inline struct uk_store_entry *
@@ -289,10 +317,9 @@ uk_store_get_entry(struct uk_store_folder *folder, const char *name)
 }
 
 /**
- * Returns a saved entry
+ * Releases an entry (decreases the refcount and sets the reference to NULL)
  *
- * @param entry the entry where to start the search
- * @return the found entry or NULL
+ * @param entry pointer to the entry to release
  */
 static inline void
 uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from list?
@@ -315,7 +342,6 @@ uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from l
  * @param entry the place where to store the function
  * @param e_type the new type of the function
  * @param func the function
- * @return 0 on success or < 0 on fail
  */
 #define uk_store_update_getter(entry, e_type, func)	\
 	do {						\
@@ -331,9 +357,8 @@ uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from l
  * Saves a new setter function in the entry
  *
  * @param entry the place where to save the new function
- * @param type the new type of the function
+ * @param e_type the new type of the function
  * @param func the function
- * @return 0 on success or < 0 on fail
  */
 #define uk_store_update_setter(entry, e_type, func)	\
 	do {						\
@@ -351,10 +376,9 @@ uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from l
  * @param entry the entry to use
  * @param e_type the type of the function (basic type)
  * @param out the place where to store the result
- * @return 0 on success or < 0 on fail
  */
 // TODO Remove e_type from args? Go back to the switch?
-// standard = 0.055, inline = 0.035, macro = 0.025
+// standard = 0.050, inline = 0.035, macro = 0.025
 #define uk_store_get_value_macro(entry, e_type, out)			\
 	do {								\
 		if (unlikely(!(entry) || !(e_type)))			\
@@ -362,7 +386,7 @@ uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from l
 		*((__##e_type *) (out)) = (entry)->get.e_type();	\
 	} while (0)
 
-extern void uk_store_get_value(struct uk_store_entry *entry, void *out);
+extern int uk_store_get_value(struct uk_store_entry *entry, void *out);
 
 /**
  * Sets the value from `in` with the saved function
@@ -370,10 +394,9 @@ extern void uk_store_get_value(struct uk_store_entry *entry, void *out);
  * @param entry the entry to use
  * @param e_type the type of the function (basic type)
  * @param in the value to give to the setter
- * @return 0 on success or < 0 on fail
  */
 // TODO Remove e_type from args? Go back to the switch?
-// standard = 0.055, inline = 0.035, macro = 0.025
+// standard = 0.050, inline = 0.035, macro = 0.025
 #define uk_store_set_value_macro(entry, e_type, in)			\
 	do {								\
 		if (unlikely(!(entry) || !(e_type)))			\
@@ -381,7 +404,7 @@ extern void uk_store_get_value(struct uk_store_entry *entry, void *out);
 		(entry)->set.e_type(*((__##e_type *) (in)));		\
 	} while (0)
 
-extern void uk_store_set_value(struct uk_store_entry *entry, void *in);
+extern int uk_store_set_value(struct uk_store_entry *entry, void *in);
 
 #ifdef __cplusplus
 }
