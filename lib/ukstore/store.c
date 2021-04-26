@@ -34,50 +34,75 @@
 #include <errno.h>
 
 /**
+ * Searches for an entry in a folder and returns it. Increases the refcount.
+ *
+ * @param folder the folder to search in
+ * @param name the name of the entry to search for
+ * @return the found entry or NULL
+ */
+struct uk_store_entry *
+uk_store_get_entry(struct uk_store_folder *folder, const char *name)
+{
+	struct uk_store_folder_entry *res = NULL;
+
+	uk_list_for_each_entry(res, &folder->folder_head, list_head)
+		if (!strcmp(res->entry->entry_name, name))
+			break;
+
+	if (res) {
+		ukarch_inc(&res->refcount.counter);
+		return res->entry;
+	}
+
+	return NULL;
+}
+
+/**
  * Calls the saved setter with the value in `in`
  *
  * @param entry the entry to call from
  * @param in the value to give to the setter
  */
-int uk_store_set_value(struct uk_store_entry *entry, void *in)
+int
+uk_store_set_value(struct uk_store_entry *entry, void *in)
 {
 	if (unlikely(!entry))
 		return -EINVAL;
 
 	switch (entry->type) {
-	case UK_STORE_ENT_S32:
+	case s32:
 		entry->set.s32(*((__s32 *) in));
 		break;
 
-	case UK_STORE_ENT_S16:
+	case s16:
 		entry->set.s16(*((__s16 *) in));
 		break;
 
-	case UK_STORE_ENT_S8:
+	case s8:
 		entry->set.s8(*((__s8 *) in));
 		break;
 
-	case UK_STORE_ENT_S64:
+	case s64:
 		entry->set.s64(*((__s64 *) in));
 		break;
 
-	case UK_STORE_ENT_U32:
+	case u32:
 		entry->set.u32(*((__u32 *) in));
 		break;
 
-	case UK_STORE_ENT_U16:
+	case u16:
 		entry->set.u16(*((__u16 *) in));
 		break;
 
-	case UK_STORE_ENT_U8:
+	case u8:
 		entry->set.u8(*((__u8 *) in));
 		break;
 
-	case UK_STORE_ENT_U64:
+	case u64:
 		entry->set.u64(*((__u64 *) in));
 		break;
 
-	case UK_STORE_ENT_UPTR:
+	case uptr:
 		entry->set.uptr(*((__uptr *) in));
 		break;
 	default:
@@ -92,45 +117,46 @@ int uk_store_set_value(struct uk_store_entry *entry, void *in)
  * @param entry the entry to call from
  * @param out the value to return
  */
-int uk_store_get_value(struct uk_store_entry *entry, void *out)
+int
+uk_store_get_value(struct uk_store_entry *entry, void *out)
 {
 	if (unlikely(!entry))
 		return -EINVAL;
 
 	switch (entry->type) {
-	case UK_STORE_ENT_S32:
+	case s32:
 		*((__s32 *) out) = entry->get.s32();
 		break;
 
-	case UK_STORE_ENT_S16:
+	case s16:
 		*((__s16 *) out) = entry->get.s16();
 		break;
 
-	case UK_STORE_ENT_S8:
+	case s8:
 		*((__s8 *) out) = entry->get.s8();
 		break;
 
-	case UK_STORE_ENT_S64:
+	case s64:
 		*((__s64 *) out) = entry->get.s64();
 		break;
 
-	case UK_STORE_ENT_U32:
+	case u32:
 		*((__u32 *) out) = entry->get.u32();
 		break;
 
-	case UK_STORE_ENT_U16:
+	case u16:
 		*((__u16 *) out) = entry->get.u16();
 		break;
 
-	case UK_STORE_ENT_U8:
+	case u8:
 		*((__u8 *) out) = entry->get.u8();
 		break;
 
-	case UK_STORE_ENT_U64:
+	case u64:
 		*((__u64 *) out) = entry->get.u64();
 		break;
 
-	case UK_STORE_ENT_UPTR:
+	case uptr:
 		*((__uptr *) out) = entry->get.uptr();
 		break;
 	default:

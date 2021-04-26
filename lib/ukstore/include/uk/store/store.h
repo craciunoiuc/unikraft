@@ -38,54 +38,9 @@
 #include <uk/list.h>
 #include <uk/arch/atomic.h>
 
-/*
-uk_store_folder -> uk_store_folder -> uk_store_folder (static)
-      |
-      V
-uk_store_folder_entry
-      |
-      V
-uk_store_folder_entry
-
-[uk_store_entry uk_store_entry uk_store_entry uk_store_entry] static
-uk_store_entry | uk_store_entry | uk_store_entry | uk_store_entry dynamic
-
--------------------------------------------------------------------------------
-
-[uk_alloc uk_sched uk_netdev]
-    |
-    V
-"total_mem"
-    |
-    V
-"1/alloc_mem"
-    |
-    V
-"2/alloc_mem"
-
-*/
-
-
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* All types used by the structure */
-enum uk_store_entry_type { // TODO Give up these types?
-	UK_STORE_ENT_NONE  = 0,
-	UK_STORE_ENT_S8    = 1,
-	UK_STORE_ENT_U8    = 2,
-	UK_STORE_ENT_S16   = 3,
-	UK_STORE_ENT_U16   = 4,
-	UK_STORE_ENT_S32   = 5,
-	UK_STORE_ENT_U32   = 6,
-	UK_STORE_ENT_S64   = 7,
-	UK_STORE_ENT_U64   = 8,
-	UK_STORE_ENT_UPTR  = 9,
-	UK_STORE_ENT_INT   = 5,
-	UK_STORE_ENT_CHAR  = 1,
-	UK_STORE_ENT_CHARP = 9
-};
 
 /* All basic types that exist */
 enum uk_store_entry_basic_type {
@@ -98,7 +53,7 @@ enum uk_store_entry_basic_type {
 	u32  = 6,
 	s64  = 7,
 	u64  = 8,
-	uptr = 9,
+	uptr = 9
 };
 
 /* Getter definitions */
@@ -156,9 +111,11 @@ struct uk_store_entry {
 struct uk_store_folder {
 	// struct uk_list_head head;
 	struct uk_list_head folder_head;
-	const char *folder_name; // TODO Keep name?
+	const char *folder_name;
 } __align8;
 // TODO Should folders be static or dynamic? (static -> no need for a uk_list of folders)
+// Both
+// List only for dynamic
 
 struct uk_store_folder_entry {
 	struct uk_store_entry *entry;
@@ -167,7 +124,6 @@ struct uk_store_folder_entry {
 } __align8;
 
 #define UK_STORE_FLAG_STATIC	1
-#define UK_STORE_FLAG_DYNAMIC	2
 
 /**
  * Retuns the folder_entry of an entry
@@ -184,7 +140,9 @@ extern struct uk_store_entry *uk_store_entries_end;
 /* Static folders array start+end points */
 extern struct uk_store_folder *uk_store_libs_start;
 extern struct uk_store_folder *uk_store_libs_end;
+
 // TODO How to get library indexes? I forgot :(
+// Make a script to generate header with defines
 
 /**
  * Adds a folder to the folder section.
@@ -208,7 +166,7 @@ extern struct uk_store_folder *uk_store_libs_end;
 		.type       = (e_type),					\
 		.get.e_type = (e_get),					\
 		.set.e_type = (e_set),					\
-		.flags      = UK_STORE_FLAG_STATIC,			\
+		.flags      = UK_STORE_FLAG_STATIC			\
 	}
 
 /**
@@ -237,7 +195,7 @@ extern struct uk_store_folder *uk_store_libs_end;
 		(entry)->type       = (e_type);				\
 		(entry)->get.e_type = getter;				\
 		(entry)->set.e_type = setter;				\
-		(entry)->flags      = UK_STORE_FLAG_DYNAMIC;		\
+		(entry)->flags      = 0;				\
 	} while (0)
 
 /**
@@ -249,7 +207,7 @@ extern struct uk_store_folder *uk_store_libs_end;
 #define uk_store_folder_entry_init(folder_entry, new_entry)		\
 	do {								\
 		(folder_entry)->entry = new_entry;			\
-		ukarch_store_n(&(folder_entry)->refcount.counter, 0);	\
+		ukarch_store_n(&(folder_entry)->refcount.counter, 1);	\
 	} while (0)
 
 /**
@@ -276,45 +234,8 @@ uk_store_del_folder_entry(struct uk_store_folder_entry *folder_entry)
 	uk_list_del(&folder_entry->list_head);
 }
 
-
-/**
- * Searches for an entry name in a folder
- *
- * @param folder the folder to search in
- * @param name the name to search for
- * @return the entry or NULL if not found
- */
-static inline struct uk_store_folder_entry *
-_uk_store_find_entry(struct uk_store_folder *folder, const char *name) // TODO Move to .c?
-{
-	struct uk_store_folder_entry *iter;
-
-	uk_list_for_each_entry(iter, &folder->folder_head, list_head)
-		if (!strcmp(iter->entry->entry_name, name))
-			return iter;
-
-	return NULL;
-}
-
-/**
- * Searches for an entry in a folder and returns it. Increases the refcount.
- *
- * @param folder the folder to search in
- * @param name the name of the entry to search for
- * @return the found entry or NULL
- */
-static inline struct uk_store_entry *
-uk_store_get_entry(struct uk_store_folder *folder, const char *name)
-{
-	struct uk_store_folder_entry *res = _uk_store_find_entry(folder, name);
-
-	if (res) {
-		ukarch_inc(&res->refcount.counter);
-		return res->entry;
-	}
-
-	return NULL;
-}
+extern struct uk_store_entry *
+uk_store_get_entry(struct uk_store_folder *folder, const char *name);
 
 /**
  * Releases an entry (decreases the refcount and sets the reference to NULL)
@@ -322,16 +243,14 @@ uk_store_get_entry(struct uk_store_folder *folder, const char *name)
  * @param entry pointer to the entry to release
  */
 static inline void
-uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from list?
-{
+uk_store_release_entry(struct uk_store_entry **entry) {
 	struct uk_store_folder_entry *res = uk_store_get_folder_entry(entry);
 
 	ukarch_dec(&res->refcount.counter);
-	/*
-	if(ukarch_load(res->refcount) <= 0) {
+
+	if (ukarch_load_n(&res->refcount.counter) <= 0)
 		uk_store_del_folder_entry(res);
-	}
-	*/
+
 	*entry = NULL;
 }
 
@@ -377,9 +296,7 @@ uk_store_release_entry(struct uk_store_entry **entry) // TODO also delete from l
  * @param e_type the type of the function (basic type)
  * @param out the place where to store the result
  */
-// TODO Remove e_type from args? Go back to the switch?
-// standard = 0.050, inline = 0.035, macro = 0.025
-#define uk_store_get_value_macro(entry, e_type, out)			\
+#define uk_store_get_value_typed(entry, e_type, out)			\
 	do {								\
 		if (unlikely(!(entry) || !(e_type)))			\
 			break;						\
@@ -395,9 +312,7 @@ extern int uk_store_get_value(struct uk_store_entry *entry, void *out);
  * @param e_type the type of the function (basic type)
  * @param in the value to give to the setter
  */
-// TODO Remove e_type from args? Go back to the switch?
-// standard = 0.050, inline = 0.035, macro = 0.025
-#define uk_store_set_value_macro(entry, e_type, in)			\
+#define uk_store_set_value_typed(entry, e_type, in)			\
 	do {								\
 		if (unlikely(!(entry) || !(e_type)))			\
 			break;						\

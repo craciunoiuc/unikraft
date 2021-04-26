@@ -66,7 +66,6 @@ UK_LIB_PARAM_STR(rootfs);
 UK_LIB_PARAM_STR(rootdev);
 UK_LIB_PARAM_STR(rootopts);
 UK_LIB_PARAM(rootflags, __u64);
-UK_STORE_INITREG_FOLDER(rootfs);
 
 static int vfscore_rootfs(void)
 {
