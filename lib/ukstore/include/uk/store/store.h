@@ -42,7 +42,10 @@
 extern "C" {
 #endif
 
-/* All basic types that exist */
+// TODO How to get library indexes? - Make a script to generate a header with defines
+// TODO Tidy up
+
+/* All basic types that exist - use these when interacting with the API */
 enum uk_store_entry_basic_type {
 	none = 0,
 	s8   = 1,
@@ -79,8 +82,8 @@ typedef void (*uk_store_set_u64_func_t)(__u64);
 typedef void (*uk_store_set_uptr_func_t)(__uptr);
 
 
-/* Stores functions and their types and a node connection to the tree */
 struct uk_store_entry {
+	/* Function getter pointer */
 	union {
 		uk_store_get_s8_func_t   s8;
 		uk_store_get_u8_func_t   u8;
@@ -92,6 +95,8 @@ struct uk_store_entry {
 		uk_store_get_u64_func_t  u64;
 		uk_store_get_uptr_func_t uptr;
 	} get;
+
+	/* Function setter pointer */
 	union {
 		uk_store_set_s8_func_t   s8;
 		uk_store_set_u8_func_t   u8;
@@ -103,23 +108,36 @@ struct uk_store_entry {
 		uk_store_set_u64_func_t  u64;
 		uk_store_set_uptr_func_t uptr;
 	} set;
+
+	/* The entry name */
 	const char *entry_name;
+
+	/* Entry flags */
 	__u16 flags;
+
+	/* Entry getter/setter type */
 	__u16 type;
 } __align8;
 
 struct uk_store_folder {
-	// struct uk_list_head head;
+	/* List for the dynamic folders only */
 	struct uk_list_head folder_head;
+
+	/* List for the entries in the folder */
+	struct uk_list_head entry_head;
+
+	/* The folder name */
 	const char *folder_name;
 } __align8;
-// TODO Should folders be static or dynamic? (static -> no need for a uk_list of folders)
-// Both
-// List only for dynamic
 
 struct uk_store_folder_entry {
+	/* Saved entry pointer */
 	struct uk_store_entry *entry;
+
+	/* The linked list head */
 	struct uk_list_head list_head;
+
+	/* Refcount */
 	__atomic refcount;
 } __align8;
 
@@ -141,9 +159,6 @@ extern struct uk_store_entry *uk_store_entries_end;
 extern struct uk_store_folder *uk_store_libs_start;
 extern struct uk_store_folder *uk_store_libs_end;
 
-// TODO How to get library indexes? I forgot :(
-// Make a script to generate header with defines
-
 /**
  * Adds a folder to the folder section.
  *
@@ -153,20 +168,10 @@ extern struct uk_store_folder *uk_store_libs_end;
 	static struct uk_store_folder					\
 	__used __section(".uk_store_libs_list") __align8		\
 	__uk_store_folder_list ## _ ## fldr  = {			\
-		.folder_head = UK_LIST_HEAD_INIT(			\
-		__uk_store_folder_list ## _ ## fldr.folder_head),	\
-		.folder_name = STRINGIFY(fldr)				\
-	}
-
-#define _UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)		\
-	static const struct uk_store_entry				\
-	__used __section(".uk_store_entries_list") __align8		\
-	__uk_store_entries_list ## _ ## entry  = {			\
-		.entry_name = STRINGIFY(entry),				\
-		.type       = (e_type),					\
-		.get.e_type = (e_get),					\
-		.set.e_type = (e_set),					\
-		.flags      = UK_STORE_FLAG_STATIC			\
+		.entry_head = UK_LIST_HEAD_INIT(			\
+		__uk_store_folder_list ## _ ## fldr.entry_head),	\
+		.folder_name = STRINGIFY(fldr),				\
+		.folder_head = {NULL, NULL}				\
 	}
 
 /**
@@ -177,8 +182,17 @@ extern struct uk_store_folder *uk_store_libs_end;
  * @param e_get getter pointer
  * @param e_set setter pointer
  */
-#define UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)	\
-	_UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)
+#define UK_STORE_INITREG_ENTRY(entry, e_type, e_get, e_set)		\
+	static const struct uk_store_entry				\
+	__used __section(".uk_store_entries_list") __align8		\
+	__uk_store_entries_list ## _ ## entry  = {			\
+		.entry_name = STRINGIFY(entry),				\
+		.type       = (e_type),					\
+		.get.e_type = (e_get),					\
+		.set.e_type = (e_set),					\
+		.flags      = UK_STORE_FLAG_STATIC			\
+	}
+
 
 /**
  * Initializes an entry
@@ -210,6 +224,31 @@ extern struct uk_store_folder *uk_store_libs_end;
 		ukarch_store_n(&(folder_entry)->refcount.counter, 1);	\
 	} while (0)
 
+
+/**
+ * Adds a folder to a folder
+ *
+ * @param folder_head the folder to add it to
+ * @param folder_to_add the folder to add to list
+ */
+static inline void
+uk_store_add_folder(struct uk_store_folder *folder_head,
+		struct uk_store_folder *new_folder)
+{
+	uk_list_add(&new_folder->folder_head, &folder_head->folder_head);
+}
+
+/**
+ * Removes a folder from a folder
+ *
+ * @param folder the folder to remove
+ */
+static inline void
+uk_store_del_folder(struct uk_store_folder *folder)
+{
+	uk_list_del(&folder->folder_head);
+}
+
 /**
  * Adds a folder entry to a folder
  *
@@ -220,7 +259,7 @@ static inline void
 uk_store_add_folder_entry(struct uk_store_folder *folder,
 			struct uk_store_folder_entry *folder_entry)
 {
-	uk_list_add(&folder_entry->list_head, &folder->folder_head);
+	uk_list_add(&folder_entry->list_head, &folder->entry_head);
 }
 
 /**
@@ -239,6 +278,8 @@ uk_store_get_entry(struct uk_store_folder *folder, const char *name);
 
 /**
  * Releases an entry (decreases the refcount and sets the reference to NULL)
+ * If the refcount is 0 (it was also released by the creator), it is removed
+ * from the list and memory can be free.
  *
  * @param entry pointer to the entry to release
  */
@@ -266,7 +307,7 @@ uk_store_release_entry(struct uk_store_entry **entry) {
 	do {						\
 		if (unlikely(!(entry) || !(e_type)))	\
 			break;				\
-		if ((entry)->type != (__u8)(e_type))	\
+		if ((entry)->type != (__u16)(e_type))	\
 			(entry)->set.e_type = NULL;	\
 		(entry)->type = (e_type);		\
 		(entry)->get.e_type = func;		\
@@ -283,7 +324,7 @@ uk_store_release_entry(struct uk_store_entry **entry) {
 	do {						\
 		if (unlikely(!(entry) || !(e_type)))	\
 			break;				\
-		if ((entry)->type != (__u8)(e_type))	\
+		if ((entry)->type != (__u16)(e_type))	\
 			(entry)->get.e_type = NULL;	\
 		(entry)->type = (e_type);		\
 		(entry)->set.e_type = func;		\
@@ -291,6 +332,7 @@ uk_store_release_entry(struct uk_store_entry **entry) {
 
 /**
  * Gets the value returned by the saved function and puts it in `out`
+ * Use only if you really know the type. Will give warning if used.
  *
  * @param entry the entry to use
  * @param e_type the type of the function (basic type)
@@ -306,7 +348,8 @@ uk_store_release_entry(struct uk_store_entry **entry) {
 extern int uk_store_get_value(struct uk_store_entry *entry, void *out);
 
 /**
- * Sets the value from `in` with the saved function
+ * Sets the value from `in` with the saved function.
+ * Use only if you really know the type. Will give warning if used.
  *
  * @param entry the entry to use
  * @param e_type the type of the function (basic type)

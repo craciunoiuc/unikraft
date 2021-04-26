@@ -45,7 +45,7 @@ uk_store_get_entry(struct uk_store_folder *folder, const char *name)
 {
 	struct uk_store_folder_entry *res = NULL;
 
-	uk_list_for_each_entry(res, &folder->folder_head, list_head)
+	uk_list_for_each_entry(res, &folder->entry_head, list_head)
 		if (!strcmp(res->entry->entry_name, name))
 			break;
 
