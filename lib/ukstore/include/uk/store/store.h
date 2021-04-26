@@ -224,6 +224,18 @@ extern struct uk_store_folder *uk_store_libs_end;
 		ukarch_store_n(&(folder_entry)->refcount.counter, 1);	\
 	} while (0)
 
+/**
+ * Initializes a uk_store_folder
+ *
+ * @param folder the folder to init
+ * @param f_name the name of the folder
+ */
+#define uk_store_folder_init(folder, f_name)				\
+	do {								\
+		(folder)->folder_name = (f_name);			\
+		UK_INIT_LIST_HEAD(&(folder)->folder_head);		\
+		UK_INIT_LIST_HEAD(&(folder)->entry_head);		\
+	} while (0)
 
 /**
  * Adds a folder to a folder
@@ -239,7 +251,7 @@ uk_store_add_folder(struct uk_store_folder *folder_head,
 }
 
 /**
- * Removes a folder from a folder
+ * Removes a folder from a folder list
  *
  * @param folder the folder to remove
  */
@@ -250,7 +262,7 @@ uk_store_del_folder(struct uk_store_folder *folder)
 }
 
 /**
- * Adds a folder entry to a folder
+ * Adds a folder entry to a folder list
  *
  * @param folder the place where to add the new entry
  * @param folder_entry the entry to add
@@ -335,7 +347,7 @@ uk_store_release_entry(struct uk_store_entry **entry) {
  * Use only if you really know the type. Will give warning if used.
  *
  * @param entry the entry to use
- * @param e_type the type of the function (basic type)
+ * @param e_type the type of the function
  * @param out the place where to store the result
  */
 #define uk_store_get_value_typed(entry, e_type, out)			\
@@ -352,7 +364,7 @@ extern int uk_store_get_value(struct uk_store_entry *entry, void *out);
  * Use only if you really know the type. Will give warning if used.
  *
  * @param entry the entry to use
- * @param e_type the type of the function (basic type)
+ * @param e_type the type of the function
  * @param in the value to give to the setter
  */
 #define uk_store_set_value_typed(entry, e_type, in)			\
