@@ -30,8 +30,26 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <uk/store/store.h>
+#include <uk/store.h>
 #include <errno.h>
+
+// struct uk_store_folder *
+// uk_store_get_folder(struct uk_store_folder **folders, const char *name)
+// {
+// 	struct uk_store_folder *fldr_start = *folders;
+// 	struct uk_store_folder *fldr_end   = (struct uk_store_folder *) &uk_store_libs_end;
+
+// 	// It's static
+// 	if (fldr_start->folder_head.next == NULL) {
+// 		for (; fldr_start != fldr_end; ++fldr_start) {
+// 			if (!strcmp(fldr_start->folder_name, name)) {
+// 				return 
+// 			}
+// 		}
+// 	} else {
+		
+// 	}
+// }
 
 /**
  * Searches for an entry in a folder and returns it. Increases the refcount.

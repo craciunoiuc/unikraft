@@ -30,9 +30,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __STORE_INTERNAL_H__
-#define __STORE_INTERNAL_H__
+#ifndef __UK_STORE_H__
+#define __UK_STORE_H__
 
+#include <uk/config.h>
 #include <uk/essentials.h>
 #include <string.h>
 #include <uk/list.h>
@@ -44,6 +45,22 @@ extern "C" {
 
 // TODO How to get library indexes? - Make a script to generate a header with defines
 // TODO Tidy up
+
+#if !CONFIG_LIBUKSTORE
+#define uk_store_libid(libname) (-1)
+#else /* !CONFIG_LIBUKSTORE */
+
+#include <uk/_store_libs.h>
+
+#define _uk_store_libid(libname) \
+	__UK_STORE_ ## libname
+#define uk_store_libid(libname) \
+	_uk_store_libid(libname)
+
+#endif /* CONFIG_LIBUKSTORE */
+
+#define uk_store_libid_self() \
+	uk_store_libid(__LIBNAME__)
 
 /* All basic types that exist - use these when interacting with the API */
 enum uk_store_entry_basic_type {
@@ -380,4 +397,4 @@ extern int uk_store_set_value(struct uk_store_entry *entry, void *in);
 }
 #endif
 
-#endif /* __STORE_INTERNAL_H__ */
+#endif /* __UK_STORE_H__ */
