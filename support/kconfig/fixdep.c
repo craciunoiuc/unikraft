@@ -276,7 +276,7 @@ static int is_ignored_file(const char *s, int len)
 /* Make sure to never ignore certain dependencies (all files depend on them) */
 static void print_must_include()
 {
-	const char *fmt = "    $(wildcard include/config/%s.h) \\\n";
+	const char *fmt = "  $(wildcard include/config/%s.h) \\\n";
 	const char *must_include_symbols[] = {
 		"optimize/none",
 		"optimize/perf",
@@ -356,11 +356,11 @@ static void parse_dep_file(char *m, const char *target)
 					printf("source_%s := %s\n\n",
 					       target, m);
 					printf("deps_%s := \\\n", target);
+					print_must_include();
 				}
 				is_first_dep = 0;
 			} else {
 				printf("  %s \\\n", m);
-				print_must_include();
 			}
 
 			buf = read_file(m);
