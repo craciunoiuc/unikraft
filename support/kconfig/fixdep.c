@@ -273,6 +273,34 @@ static int is_ignored_file(const char *s, int len)
 	       str_ends_with(s, len, ".ver");
 }
 
+/* Make sure to never ignore certain dependencies (all files depend on them) */
+static void print_must_include()
+{
+	const char *fmt = "    $(wildcard include/config/%s.h) \\\n";
+	const char *must_include_symbols[] = {
+		"optimize/none",
+		"optimize/perf",
+		"optimize/size",
+		"optimize/noomitfp",
+		"optimize/deadelim",
+		"optimize/lto",
+		"optimize/symfile",
+		"optimize/compress",
+		"debug/symbols/lvl0",
+		"debug/symbols/lvl1",
+		"debug/symbols/lvl2",
+		"debug/symbols/lvl3",
+		"record/buildtime/time",
+		"record/buildtime/liftoff",
+		"cross/compile",
+		"llvm/target/arch",
+		NULL
+	};
+
+	for (int i = 0; must_include_symbols[i]; i++)
+		printf(fmt, must_include_symbols[i]);
+}
+
 /*
  * Important: The below generated source_foo.o and deps_foo.o variable
  * assignments are parsed not only by make, but also by the rather simple
@@ -332,6 +360,7 @@ static void parse_dep_file(char *m, const char *target)
 				is_first_dep = 0;
 			} else {
 				printf("  %s \\\n", m);
+				print_must_include();
 			}
 
 			buf = read_file(m);
