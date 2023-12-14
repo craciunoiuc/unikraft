@@ -3,7 +3,7 @@
  * Authors: Cristian Vijelie <cristianvijelie@gmail.com>
  *          Sergiu Moga <sergiu.moga@protonmail.com>
  *
- * Copyright (c) 2023, University POLITEHNICA of Bucharest. All rights reserved.
+ * Copyright (c) 2023, National University for Technology and Science of Bucharest. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
