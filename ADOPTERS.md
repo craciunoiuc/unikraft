@@ -12,7 +12,7 @@ This page contains an alphabetical list of organizations who are users of Unikra
 * [NEC Laboratories Europe GmbH](https://neclab.eu)
 * [The University of Manchester](https://www.manchester.ac.uk/)
 * [University of Liège](https://www.uliege.be/)
-* [National University of Technology and Science Bucharest](https://upb.ro)
+* [University POLITEHNICA of Bucharest](https://upb.ro)
 
 If you would like to be included in this list, please open a [pull request to this document](https://github.com/unikraft/unikraft/blob/staging/ADOPTERS.md) and include a [DCO sign-off](https://developercertificate.org/) with a verified email address of the organization you represent OR citation to a public document which states the adoption of Unikraft by the represented organization.
 
