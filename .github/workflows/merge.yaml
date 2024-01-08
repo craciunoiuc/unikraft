@@ -26,3 +26,6 @@ jobs:
           echo "$REF"
           echo ${{ github.event.number }}
           gh pr view --json number -q .number
+          echo "$GITHUB_REF"
+          echo "$GITHUB_ENV"
+
