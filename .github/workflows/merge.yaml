@@ -4,6 +4,10 @@ on:
   pull_request_target:
     types: [labeled]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   merge:
     if: ${{ github.event.label.name == 'merged' }}
@@ -17,22 +21,8 @@ jobs:
       - name: Install governctl
         run: |
           set -xe
-          wget -q "https://github.com/unikraft/governance/releases/download/v${GOVERN_VERSION}/governance_${GOVERN_VERSION}_linux_amd64.deb"
-          sudo dpkg -i "governance_${GOVERN_VERSION}_linux_amd64.deb"
-        env:
-          GOVERN_VERSION: 0.1.8
-
-      - name: Run the merge through governctl
-        run: |
-          set -xe
-          unset GITHUB_TOKEN
-          governctl pr merge --approve-states "${GOVERN_APPROVE_STATES}" --review-states "${GOVERN_REVIEW_STATES}" --base "staging" --push "unikraft/unikraft/${PR_NUMBER}"
-        env:
-          GOVERN_GITHUB_TOKEN: ${{ secrets.GH_MERGE_PAT }}
-          GOVERN_GITHUB_USER: ${{ secrets.GH_MERGE_ACTOR }}
-          GOVERN_NO_RENDER: true
-          GOVERN_LOG_LEVEL: warn
-          GOVERN_NO_CONFLICTS: true
-          GOVERN_REVIEW_STATES: approved
-          GOVERN_APPROVE_STATES: approved
-
+          echo "$PR_NUMBER"
+          REF=$(echo ${{ github.event.number }} | sed 's/\//\\\//g')
+          echo "$REF"
+          echo ${{ github.event.number }}
+          gh pr view --json number -q .number
