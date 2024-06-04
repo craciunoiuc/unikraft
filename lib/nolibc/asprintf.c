@@ -29,7 +29,7 @@ int vasprintf(char **s, const char *fmt, va_list ap)
 {
 	va_list ap2;
 	int l;
-
+	
 	va_copy(ap2, ap);
 	l = vsnprintf(0, 0, fmt, ap2);
 	va_end(ap2);
